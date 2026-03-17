@@ -27,3 +27,22 @@
     - SQLite metadata persistence (not chosen: filesystem JSON journals are smaller for the seed runtime and preserve the same contract semantics)
     - distributed or multi-node locking (rejected: out of scope for the single-node faithful implementation)
   - **References:** `DOC-CAN-005`; `DOC-CAN-006`; `README.md`; `NEXT_ACTIONS.md`; `TRACEABILITY.md`
+
+
+- **ID:** D-0003
+  - **Status:** Accepted
+  - **Date:** 2026-03-17
+  - **Goals:** G4, G5
+  - **Decision:** `NA-0002` freezes the repo-local deployment / operational hardening contract for `qsl-attachments` without changing runtime code. The repo now states the current single-node local-disk posture truthfully, aligns with qsl-protocol `DOC-ATT-002`, defines the constrained-host validation ladder and readiness categories that the runtime must satisfy next, and makes `NA-0003` the implementation-grade follow-on for operational hardening plus real-world validation.
+  - **Invariants:**
+    - no plaintext attachment handling on service surfaces
+    - no capability-like secrets in canonical URLs
+    - no runtime or workflow changes occur in `NA-0002`
+    - constrained-host and weak-relay results must distinguish saturation from correctness failure
+    - qsl-protocol canonical docs remain authoritative for attachment semantics
+    - qsl-server remains separate and transport-only
+  - **Alternatives Considered:**
+    - treat the single-node local-disk runtime plus minimal `rust` CI as sufficient operational maturity (rejected: does not define deployment/readiness expectations or the constrained-host ladder)
+    - implement runtime/deployment changes in `NA-0002` (rejected: out of scope; contract must be frozen before implementation)
+    - begin default-path promotion or legacy deprecation from this repo-local item (rejected: blocked until the operational ladder is executed truthfully)
+  - **References:** `README.md`; `START_HERE.md`; `NEXT_ACTIONS.md`; `TRACEABILITY.md`; `docs/NA-0002_operational_hardening_contract.md`; `tests/NA-0002_operational_hardening_contract_evidence.md`; qsl-protocol `docs/design/DOC-ATT-002_qsl-attachments_Deployment_and_Operational_Hardening_Contract_v0.1.0_DRAFT.md`
