@@ -43,7 +43,7 @@ Evidence:
 
 ### NA-0002 — Deployment / Operational Hardening Contract
 
-Status: READY
+Status: DONE
 
 Problem:
 - The single-node local-disk attachment runtime now exists, but the deployment/readiness contract needed before any default-path promotion or legacy deprecation is not yet frozen.
@@ -70,3 +70,40 @@ Acceptance:
 1) repo-local operational contract is explicit enough to execute next
 2) no runtime or workflow changes occur
 3) queue/evidence are updated truthfully
+
+Evidence:
+- promotion PR: https://github.com/QuantumShieldLabs/qsl-attachments/pull/4
+- implementation PR: https://github.com/QuantumShieldLabs/qsl-attachments/pull/5
+- merge SHA: `45550eb325e96803ef6041a81f89098346757c93`
+- mergedAt: `2026-03-17T12:08:33Z`
+- operational-contract/readiness-ladder summary: repo-local docs now align with qsl-protocol `DOC-ATT-002`, state the current single-node local-disk posture truthfully, define deployment profiles plus the constrained-host validation ladder, and freeze the exact readiness categories and promotion/deprecation gates without changing attachment semantics.
+- runtime-change note: no runtime code, dependency, or workflow changes occurred in `NA-0002`; the repo-local output is docs/governance only.
+
+### NA-0003 — Operational Hardening Implementation + Constrained-Host Validation
+
+Status: READY
+
+Problem:
+- The deployment/operational hardening contract is now frozen, but the qsl-attachments runtime has not yet implemented the operational controls, deployment posture, or constrained-host real-world validation ladder needed for default-path promotion/deprecation decisions.
+
+Scope:
+- qsl-attachments runtime/ops/docs as needed for operational hardening and real-world validation
+- no qsl-protocol runtime redesign
+- no qsl-server work
+
+Must protect:
+- no plaintext on service surfaces
+- no capability-like secrets in canonical URLs
+- constrained-host results must distinguish saturation from correctness failure
+- qsl-server remains transport-only
+
+Deliverables:
+1) implement the operational hardening/readiness controls defined by NA-0200
+2) perform constrained-host real-world validation over deployed qsl-attachments + real relay
+3) capture resource/load evidence and classify saturation vs correctness
+4) identify any final blockers to default-path promotion / legacy deprecation
+
+Acceptance:
+1) readiness ladder is executed truthfully
+2) runtime/ops evidence is recorded
+3) queue/evidence updated truthfully
