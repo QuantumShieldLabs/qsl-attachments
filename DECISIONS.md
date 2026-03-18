@@ -46,3 +46,22 @@
     - implement runtime/deployment changes in `NA-0002` (rejected: out of scope; contract must be frozen before implementation)
     - begin default-path promotion or legacy deprecation from this repo-local item (rejected: blocked until the operational ladder is executed truthfully)
   - **References:** `README.md`; `START_HERE.md`; `NEXT_ACTIONS.md`; `TRACEABILITY.md`; `docs/NA-0002_operational_hardening_contract.md`; `tests/NA-0002_operational_hardening_contract_evidence.md`; qsl-protocol `docs/design/DOC-ATT-002_qsl-attachments_Deployment_and_Operational_Hardening_Contract_v0.1.0_DRAFT.md`
+
+
+- **ID:** D-0004
+  - **Status:** Accepted
+  - **Date:** 2026-03-18
+  - **Goals:** G4, G5
+  - **Decision:** `NA-0003` implements only the smallest operational controls needed for truthful constrained-host validation: a storage-headroom reserve with deterministic `REJECT_QATTSVC_QUOTA` rejects before disk exhaustion, operator-safe startup configuration logging, and a `101 MiB` ciphertext ceiling so the `100 MiB` target class can succeed despite part-cipher overhead. The constrained-host ladder was then executed over the restored real relay and the deployed single-node service on `qsl`; the service-backed ladder, upload-resume stage, direct service-restart stage, reject/expiry paths, and limited concurrency stage all remained contract-faithful, while the exact `4 MiB` legacy-path boundary exposed bounded weak-relay saturation that failed closed without any attachment-service correctness break.
+  - **Invariants:**
+    - no plaintext attachment handling on service surfaces
+    - no capability-like secrets in canonical URLs
+    - constrained-host evidence must distinguish bounded saturation from correctness failure
+    - weak-relay queue pressure must fail closed without silent state mutation or false delivery semantics
+    - qsl-protocol canonical docs remain authoritative for attachment semantics
+    - qsl-server remains separate and transport-only
+  - **Alternatives Considered:**
+    - keep the raw `100 MiB` ciphertext ceiling (rejected: a truthful `100 MiB` target-class run needs room for part-cipher overhead)
+    - add broader metrics or deployment automation in this item (rejected: overbuild beyond the smallest controls needed for constrained-host validation)
+    - classify the exact `4 MiB` legacy-path queue-full result as an attachment-service correctness failure (rejected: the service path was idle, retries remained bounded, and the relay failed closed)
+  - **References:** `README.md`; `START_HERE.md`; `TRACEABILITY.md`; `Cargo.toml`; `src/lib.rs`; `src/main.rs`; `tests/service_contract.rs`; `tests/NA-0003_constrained_host_validation_evidence.md`; qsl-protocol `docs/design/DOC-ATT-002_qsl-attachments_Deployment_and_Operational_Hardening_Contract_v0.1.0_DRAFT.md`

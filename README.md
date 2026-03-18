@@ -19,7 +19,8 @@ Current state:
 - single-node local-disk runtime implementation
 - deterministic contract-faithfulness tests and minimal runtime CI
 - qsc/client integration exists upstream in qsl-protocol
-- deployment / operational hardening and constrained-host real-world validation are the current blocker before any default-path promotion or legacy deprecation discussion
+- constrained-host operational hardening and real-world validation now have direct evidence in `tests/NA-0003_constrained_host_validation_evidence.md`
+- stronger reference-deployment validation and promotion-gate evidence remain the blocker before any default-path promotion or legacy deprecation discussion
 
 Runtime shape in this item:
 - opaque ciphertext part files on local disk
@@ -30,8 +31,10 @@ Runtime shape in this item:
 Operational posture:
 - this repo is still only the current single-node local-disk runtime
 - `main` currently requires only the `rust` check
-- no deployment automation, multi-node storage backend, or operational hardening implementation is present yet
+- startup now emits an operator-safe runtime configuration summary, and storage-headroom rejects fail closed before weak hosts exhaust disk during validation
+- no deployment automation, multi-node storage backend, or stronger reference-deployment evidence is present yet
 - the implementation-grade operational contract now lives in `docs/NA-0002_operational_hardening_contract.md`
+- constrained-host execution evidence now lives in `tests/NA-0003_constrained_host_validation_evidence.md`
 
 Canonical references:
 - https://github.com/QuantumShieldLabs/qsl-protocol/blob/main/docs/canonical/DOC-CAN-005_QSP_Attachment_Descriptor_and_Control_Plane_v0.1.0_DRAFT.md

@@ -6,7 +6,7 @@ use axum::http::{Method, Request, StatusCode};
 use http_body_util::BodyExt;
 use qsl_attachments::{
     build_router, sha512_merkle_root, AppState, CommitRequest, Config, CreateSessionRequest,
-    MissingRange, PartSizeClass, RetentionClass, SessionStatusResponse, TestClock,
+    MissingRange, PartSizeClass, RetentionClass, SessionStatusResponse, TestClock, TestDiskSpace,
     UploadPartResponse,
 };
 use tempfile::TempDir;
@@ -17,6 +17,7 @@ struct Fixture {
     app: axum::Router,
     state: AppState,
     clock: TestClock,
+    disk: TestDiskSpace,
 }
 
 impl Fixture {
@@ -24,8 +25,9 @@ impl Fixture {
         let tempdir = TempDir::new().expect("tempdir");
         let config = Config {
             storage_root: tempdir.path().join("data"),
-            max_ciphertext_bytes: 100 * 1024 * 1024,
+            max_ciphertext_bytes: 101 * 1024 * 1024,
             max_open_sessions: 1,
+            storage_reserve_bytes: 1024,
             session_ttl_secs: 5,
             short_retention_ttl_secs: 5,
             standard_retention_ttl_secs: 30,
@@ -35,13 +37,17 @@ impl Fixture {
             ..Config::default()
         };
         let clock = TestClock::new(1_700_000_000);
-        let state = AppState::new(config, Arc::new(clock.clone())).expect("state");
+        let disk = TestDiskSpace::new(u64::MAX / 4);
+        let state =
+            AppState::new_with_disk_space(config, Arc::new(clock.clone()), Arc::new(disk.clone()))
+                .expect("state");
         let app = build_router(state.clone());
         Self {
             _tempdir: tempdir,
             app,
             state,
             clock,
+            disk,
         }
     }
 
@@ -629,6 +635,151 @@ async fn quota_limit_rejects() {
     assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
     let body: serde_json::Value = read_json(response).await;
     assert_eq!(body["reason_code"], "REJECT_QATTSVC_QUOTA");
+}
+
+#[tokio::test]
+async fn hundred_mib_target_class_create_session_succeeds() {
+    let fixture = Fixture::new();
+    let plaintext_len = 100_u64 * 1024 * 1024;
+    let part_count = plaintext_len.div_ceil((1_048_576_u64) - 16) as u32;
+    let ciphertext_len = plaintext_len + (u64::from(part_count) * 16);
+    assert!(ciphertext_len <= fixture.state.config().max_ciphertext_bytes);
+    let request = CreateSessionRequest {
+        attachment_id: attachment_id(13),
+        ciphertext_len,
+        part_size_class: PartSizeClass::P1024k,
+        part_count,
+        integrity_alg: "sha512_merkle_v1".to_owned(),
+        integrity_root: "0".repeat(128),
+        retention_class: RetentionClass::Standard,
+    };
+    let response = fixture
+        .json_request(
+            Method::POST,
+            "/v1/attachments/sessions",
+            &[],
+            serde_json::to_value(request).unwrap(),
+        )
+        .await;
+    assert_eq!(response.status(), StatusCode::CREATED);
+}
+
+#[tokio::test]
+async fn create_session_rejects_when_two_copy_disk_headroom_is_missing() {
+    let fixture = Fixture::new();
+    let (_parts, request) = one_part_payload(10, b"0123456789", RetentionClass::Standard);
+    fixture
+        .disk
+        .set_available_bytes((request.ciphertext_len * 2) - 1);
+    let response = fixture
+        .json_request(
+            Method::POST,
+            "/v1/attachments/sessions",
+            &[],
+            serde_json::to_value(request).unwrap(),
+        )
+        .await;
+    assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
+    let body: serde_json::Value = read_json(response).await;
+    assert_eq!(body["reason_code"], "REJECT_QATTSVC_QUOTA");
+}
+
+#[tokio::test]
+async fn upload_part_disk_pressure_rejects_without_mutation() {
+    let fixture = Fixture::new();
+    let (parts, request) = one_part_payload(11, b"opaque", RetentionClass::Standard);
+    let create = fixture
+        .json_request(
+            Method::POST,
+            "/v1/attachments/sessions",
+            &[],
+            serde_json::to_value(request).unwrap(),
+        )
+        .await;
+    let create_body: serde_json::Value = read_json(create).await;
+    let session_id = create_body["session_id"].as_str().unwrap();
+    let resume_token = create_body["resume_token"].as_str().unwrap();
+    fixture.disk.set_available_bytes(
+        (parts[0].len() as u64) + fixture.state.config().storage_reserve_bytes - 1,
+    );
+    let bad = fixture
+        .bytes_request(
+            Method::PUT,
+            &format!("/v1/attachments/sessions/{session_id}/parts/0"),
+            &[("X-QATT-Resume-Token", resume_token)],
+            parts[0].clone(),
+        )
+        .await;
+    assert_eq!(bad.status(), StatusCode::PAYLOAD_TOO_LARGE);
+    let status = fixture
+        .bytes_request(
+            Method::GET,
+            &format!("/v1/attachments/sessions/{session_id}"),
+            &[("X-QATT-Resume-Token", resume_token)],
+            Vec::new(),
+        )
+        .await;
+    let body: SessionStatusResponse = read_json(status).await;
+    assert_eq!(body.stored_part_count, 0);
+}
+
+#[tokio::test]
+async fn commit_disk_pressure_rejects_without_mutation() {
+    let fixture = Fixture::new();
+    let (parts, request) = one_part_payload(12, b"opaque-commit", RetentionClass::Standard);
+    let create = fixture
+        .json_request(
+            Method::POST,
+            "/v1/attachments/sessions",
+            &[],
+            serde_json::to_value(request.clone()).unwrap(),
+        )
+        .await;
+    let create_body: serde_json::Value = read_json(create).await;
+    let session_id = create_body["session_id"].as_str().unwrap();
+    let resume_token = create_body["resume_token"].as_str().unwrap();
+    fixture
+        .bytes_request(
+            Method::PUT,
+            &format!("/v1/attachments/sessions/{session_id}/parts/0"),
+            &[("X-QATT-Resume-Token", resume_token)],
+            parts[0].clone(),
+        )
+        .await;
+    fixture.disk.set_available_bytes(
+        request.ciphertext_len + fixture.state.config().storage_reserve_bytes - 1,
+    );
+    let commit = fixture
+        .json_request(
+            Method::POST,
+            &format!("/v1/attachments/sessions/{session_id}/commit"),
+            &[("X-QATT-Resume-Token", resume_token)],
+            serde_json::to_value(CommitRequest {
+                attachment_id: request.attachment_id,
+                ciphertext_len: request.ciphertext_len,
+                part_count: request.part_count,
+                integrity_alg: request.integrity_alg,
+                integrity_root: request.integrity_root,
+                retention_class: request.retention_class,
+            })
+            .unwrap(),
+        )
+        .await;
+    assert_eq!(commit.status(), StatusCode::PAYLOAD_TOO_LARGE);
+    let status = fixture
+        .bytes_request(
+            Method::GET,
+            &format!("/v1/attachments/sessions/{session_id}"),
+            &[("X-QATT-Resume-Token", resume_token)],
+            Vec::new(),
+        )
+        .await;
+    let body: SessionStatusResponse = read_json(status).await;
+    assert_eq!(
+        body.session_state,
+        qsl_attachments::SessionState::Committable
+    );
+    assert_eq!(body.stored_part_count, 1);
 }
 
 #[tokio::test]
