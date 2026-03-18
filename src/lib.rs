@@ -1,7 +1,9 @@
 use std::collections::{BTreeMap, HashMap};
+use std::ffi::CString;
 use std::fs;
 use std::io::{self, Write};
 use std::net::SocketAddr;
+use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -26,6 +28,7 @@ const RESUME_TOKEN_HEADER: &str = "X-QATT-Resume-Token";
 const FETCH_CAPABILITY_HEADER: &str = "X-QATT-Fetch-Capability";
 const LOCATOR_KIND_V1: &str = "service_ref_v1";
 const INTEGRITY_ALG_V1: &str = "sha512_merkle_v1";
+const DEFAULT_MAX_CIPHERTEXT_BYTES: u64 = 101 * 1024 * 1024;
 
 #[derive(Clone, Debug)]
 pub struct Config {
@@ -33,6 +36,7 @@ pub struct Config {
     pub bind_addr: SocketAddr,
     pub max_ciphertext_bytes: u64,
     pub max_open_sessions: usize,
+    pub storage_reserve_bytes: u64,
     pub session_ttl_secs: u64,
     pub short_retention_ttl_secs: u64,
     pub standard_retention_ttl_secs: u64,
@@ -46,8 +50,9 @@ impl Default for Config {
         Self {
             storage_root: PathBuf::from("./data"),
             bind_addr: SocketAddr::from(([127, 0, 0, 1], 3000)),
-            max_ciphertext_bytes: 100 * 1024 * 1024,
+            max_ciphertext_bytes: DEFAULT_MAX_CIPHERTEXT_BYTES,
             max_open_sessions: 32,
+            storage_reserve_bytes: 64 * 1024 * 1024,
             session_ttl_secs: 3600,
             short_retention_ttl_secs: 3600,
             standard_retention_ttl_secs: 86_400,
@@ -71,6 +76,7 @@ impl Config {
         }
         parse_env_u64("QATT_MAX_CIPHERTEXT_BYTES", &mut cfg.max_ciphertext_bytes)?;
         parse_env_usize("QATT_MAX_OPEN_SESSIONS", &mut cfg.max_open_sessions)?;
+        parse_env_u64("QATT_STORAGE_RESERVE_BYTES", &mut cfg.storage_reserve_bytes)?;
         parse_env_u64("QATT_SESSION_TTL_SECS", &mut cfg.session_ttl_secs)?;
         parse_env_u64(
             "QATT_RETENTION_SHORT_SECS",
@@ -165,6 +171,50 @@ impl Clock for TestClock {
     }
 }
 
+pub trait DiskSpace: Send + Sync {
+    fn available_bytes(&self, path: &Path) -> io::Result<u64>;
+}
+
+#[derive(Debug, Default)]
+pub struct SystemDiskSpace;
+
+impl DiskSpace for SystemDiskSpace {
+    fn available_bytes(&self, path: &Path) -> io::Result<u64> {
+        let c_path = CString::new(path.as_os_str().as_bytes())
+            .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "path contains nul"))?;
+        let mut stats = std::mem::MaybeUninit::<libc::statvfs>::uninit();
+        let rc = unsafe { libc::statvfs(c_path.as_ptr(), stats.as_mut_ptr()) };
+        if rc != 0 {
+            return Err(io::Error::last_os_error());
+        }
+        let stats = unsafe { stats.assume_init() };
+        Ok(stats.f_bavail.saturating_mul(stats.f_frsize))
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct TestDiskSpace {
+    available_bytes: Arc<Mutex<u64>>,
+}
+
+impl TestDiskSpace {
+    pub fn new(initial: u64) -> Self {
+        Self {
+            available_bytes: Arc::new(Mutex::new(initial)),
+        }
+    }
+
+    pub fn set_available_bytes(&self, value: u64) {
+        *self.available_bytes.lock().expect("disk lock") = value;
+    }
+}
+
+impl DiskSpace for TestDiskSpace {
+    fn available_bytes(&self, _path: &Path) -> io::Result<u64> {
+        Ok(*self.available_bytes.lock().expect("disk lock"))
+    }
+}
+
 #[derive(Clone, Debug, Serialize, PartialEq, Eq)]
 pub struct AuditEvent {
     pub kind: String,
@@ -244,6 +294,7 @@ pub struct AppState {
 struct InnerState {
     config: Config,
     clock: Arc<dyn Clock>,
+    disk_space: Arc<dyn DiskSpace>,
     storage: Storage,
     audit: AuditLog,
     mutation_lock: AsyncMutex<()>,
@@ -252,12 +303,21 @@ struct InnerState {
 
 impl AppState {
     pub fn new(config: Config, clock: Arc<dyn Clock>) -> io::Result<Self> {
+        Self::new_with_disk_space(config, clock, Arc::new(SystemDiskSpace))
+    }
+
+    pub fn new_with_disk_space(
+        config: Config,
+        clock: Arc<dyn Clock>,
+        disk_space: Arc<dyn DiskSpace>,
+    ) -> io::Result<Self> {
         let storage = Storage::new(config.storage_root.clone());
         storage.ensure_layout()?;
         Ok(Self {
             inner: Arc::new(InnerState {
                 config,
                 clock,
+                disk_space,
                 storage,
                 audit: AuditLog::default(),
                 mutation_lock: AsyncMutex::new(()),
@@ -272,6 +332,33 @@ impl AppState {
 
     pub fn config(&self) -> &Config {
         &self.inner.config
+    }
+
+    fn ensure_disk_headroom(
+        &self,
+        additional_bytes: u64,
+        session_id: Option<&str>,
+        attachment_id: Option<&str>,
+    ) -> Result<(), ServiceError> {
+        let required_bytes =
+            additional_bytes.saturating_add(self.inner.config.storage_reserve_bytes);
+        let available_bytes = self
+            .inner
+            .disk_space
+            .available_bytes(&self.inner.config.storage_root)?;
+        if available_bytes >= required_bytes {
+            return Ok(());
+        }
+        self.inner.audit.record(AuditEvent {
+            kind: "quota_reject".to_owned(),
+            session_id: session_id.map(str::to_owned),
+            locator_ref: None,
+            attachment_id: attachment_id.map(str::to_owned),
+            reason_code: Some("REJECT_QATTSVC_QUOTA".to_owned()),
+        });
+        Err(ServiceError::quota(
+            "insufficient free disk for staged and committed attachment data",
+        ))
     }
 
     async fn sweep_expired(&self, now: u64) -> Result<(), ServiceError> {
@@ -354,6 +441,11 @@ impl AppState {
         {
             return Err(ServiceError::policy("attachment_id already active"));
         }
+        self.ensure_disk_headroom(
+            request.ciphertext_len.saturating_mul(2),
+            None,
+            Some(&request.attachment_id),
+        )?;
 
         let session_id = random_token(18);
         let resume_token = random_token(32);
@@ -439,6 +531,11 @@ impl AppState {
                 "part length does not match declared shape",
             ));
         }
+        self.ensure_disk_headroom(
+            expected_len,
+            Some(&session.session_id),
+            Some(&session.attachment_id),
+        )?;
 
         if let Some(existing) = self
             .inner
@@ -593,6 +690,11 @@ impl AppState {
         if computed_root != session.integrity_root {
             return Err(ServiceError::commit_mismatch("integrity root mismatch"));
         }
+        self.ensure_disk_headroom(
+            session.ciphertext_len,
+            Some(&session.session_id),
+            Some(&session.attachment_id),
+        )?;
 
         let locator_ref = random_token(18);
         let fetch_capability = random_token(32);
