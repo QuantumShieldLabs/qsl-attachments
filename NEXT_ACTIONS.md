@@ -81,7 +81,7 @@ Evidence:
 
 ### NA-0003 — Operational Hardening Implementation + Constrained-Host Validation
 
-Status: READY
+Status: DONE
 
 Problem:
 - The deployment/operational hardening contract is now frozen, but the qsl-attachments runtime has not yet implemented the operational controls, deployment posture, or constrained-host real-world validation ladder needed for default-path promotion/deprecation decisions.
@@ -107,3 +107,12 @@ Acceptance:
 1) readiness ladder is executed truthfully
 2) runtime/ops evidence is recorded
 3) queue/evidence updated truthfully
+
+Evidence:
+- implementation PR: https://github.com/QuantumShieldLabs/qsl-attachments/pull/7
+- merge SHA: `2d69abd084dd8918a0092385a92fcf56a8a6748b`
+- mergedAt: `2026-03-18T22:58:25Z`
+- operational-hardening summary: the runtime now enforces a storage-headroom reserve before create/upload/commit mutations, emits operator-safe startup configuration logs, and raises the ciphertext ceiling just enough to carry the `100 MiB` target class truthfully after part-cipher overhead.
+- constrained-host ladder summary: direct evidence now covers `< 4 MiB` legacy-path success, exact `4 MiB` legacy-path weak-relay saturation with fail-closed bounded retries, `> 4 MiB` missing-service reject, `> 4 MiB` service-backed success, `16 MiB` / `64 MiB` / `100 MiB` service-backed success, upload-resume success, direct service-restart success, direct API quota/session/object-expiry rejects, and limited concurrency success over the restored real relay plus deployed single-node service on `qsl`.
+- saturation-vs-correctness summary: no qsl-attachments correctness failure was proven in the required ladder; the exact `4 MiB` queue-full result was bounded weak-relay saturation with the service path idle, while a stricter exploratory receive-abort composite exposed a client-side confirm issue outside the minimum required service ladder.
+- secret-safe evidence hygiene: no raw resume tokens, fetch capabilities, relay bearer tokens, or vault passphrases were written into repo artifacts or the live qsl-attachments journal during this item.
