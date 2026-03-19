@@ -65,3 +65,22 @@
     - add broader metrics or deployment automation in this item (rejected: overbuild beyond the smallest controls needed for constrained-host validation)
     - classify the exact `4 MiB` legacy-path queue-full result as an attachment-service correctness failure (rejected: the service path was idle, retries remained bounded, and the relay failed closed)
   - **References:** `README.md`; `START_HERE.md`; `TRACEABILITY.md`; `Cargo.toml`; `src/lib.rs`; `src/main.rs`; `tests/service_contract.rs`; `tests/NA-0003_constrained_host_validation_evidence.md`; qsl-protocol `docs/design/DOC-ATT-002_qsl-attachments_Deployment_and_Operational_Hardening_Contract_v0.1.0_DRAFT.md`
+
+
+- **ID:** D-0005
+  - **Status:** Accepted
+  - **Date:** 2026-03-19
+  - **Goals:** G4, G5
+  - **Decision:** `NA-0004` establishes a materially stronger reference deployment on `qatt` while keeping the real relay on `qsl`, documents the install/update/verify path without storing secrets, and records mixed message + attachment validation over that stronger profile. The service-backed `5 MiB`, `16 MiB`, `64 MiB`, and `100 MiB` attachment runs, mixed traffic, upload-resume, direct service restart, bounded concurrency, and short soak all remained contract-faithful on the stronger host. The remaining degraded threshold cases stayed on the weak relay / legacy path: corrected `< 4 MiB` timed out while still making forward progress, and a fresh exact `4 MiB` rerun failed closed with `relay_inbox_queue_full` on the sender-side final chunk after bounded retries while the attachment-service host remained idle. No qsl-attachments runtime correction was required for the stronger reference deployment, and the honest next blocker becomes a broader mixed message + attachment stress/soak/chaos lane rather than more reference-host hardening or an immediate promotion decision.
+  - **Invariants:**
+    - no plaintext attachment handling on service surfaces
+    - no capability-like secrets in canonical URLs
+    - the stronger reference deployment must preserve the single-node local-disk runtime truthfully
+    - weak-relay threshold degradation must not be misclassified as an attachment-service correctness failure
+    - qsl-protocol canonical docs remain authoritative for attachment semantics
+    - qsl-server remains separate and transport-only
+  - **Alternatives Considered:**
+    - continue using only constrained-host `qsl` for promotion-gate evidence (rejected: does not separate weak-host effects from stronger reference-host evidence)
+    - treat the exact `4 MiB` weak-relay queue saturation as a qsl-attachments reference-host defect (rejected: `qatt` remained effectively idle and the service path was not the bottleneck)
+    - jump directly to default-path promotion / legacy deprecation after the reference runs (rejected: broader mixed message + attachment stress/soak/chaos evidence still outranks that decision)
+  - **References:** `README.md`; `START_HERE.md`; `TRACEABILITY.md`; `docs/NA-0004_reference_deployment_runbook.md`; `tests/NA-0004_reference_deployment_validation_evidence.md`; qsl-protocol `docs/design/DOC-ATT-002_qsl-attachments_Deployment_and_Operational_Hardening_Contract_v0.1.0_DRAFT.md`
