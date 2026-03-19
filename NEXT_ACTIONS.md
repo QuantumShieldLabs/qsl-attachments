@@ -116,3 +116,32 @@ Evidence:
 - constrained-host ladder summary: direct evidence now covers `< 4 MiB` legacy-path success, exact `4 MiB` legacy-path weak-relay saturation with fail-closed bounded retries, `> 4 MiB` missing-service reject, `> 4 MiB` service-backed success, `16 MiB` / `64 MiB` / `100 MiB` service-backed success, upload-resume success, direct service-restart success, direct API quota/session/object-expiry rejects, and limited concurrency success over the restored real relay plus deployed single-node service on `qsl`.
 - saturation-vs-correctness summary: no qsl-attachments correctness failure was proven in the required ladder; the exact `4 MiB` queue-full result was bounded weak-relay saturation with the service path idle, while a stricter exploratory receive-abort composite exposed a client-side confirm issue outside the minimum required service ladder.
 - secret-safe evidence hygiene: no raw resume tokens, fetch capabilities, relay bearer tokens, or vault passphrases were written into repo artifacts or the live qsl-attachments journal during this item.
+
+### NA-0004 — Reference Deployment Validation + Promotion Gate Evidence
+
+Status: READY
+
+Problem:
+- The constrained-host lane is now grounded, but the project still lacks stronger reference-deployment evidence showing how the integrated message + attachment system behaves on a materially stronger host profile before any default-path promotion or legacy deprecation decision can be made honestly.
+
+Scope:
+- qsl-attachments runtime/ops/docs as needed for stronger reference deployment validation and promotion-gate evidence
+- no qsl-server work
+- no qsl-protocol semantic changes
+
+Must protect:
+- no plaintext on service surfaces
+- no capability-like secrets in canonical URLs
+- mixed message + attachment evidence must distinguish saturation from correctness failure honestly
+- qsl-server remains transport-only
+
+Deliverables:
+1) establish a stronger reference deployment profile for qsl-attachments while preserving current semantics
+2) execute the reference validation matrix across message-only, attachment-only, and mixed traffic over the real relay
+3) capture resource/load/restart/soak evidence and classify bounded saturation, correctness failure, and deployment immaturity honestly
+4) identify the exact remaining blocker to default-path promotion / legacy `<= 4 MiB` deprecation decisions
+
+Acceptance:
+1) stronger reference deployment evidence is recorded truthfully
+2) mixed message + attachment validation is recorded truthfully
+3) queue/evidence updated truthfully
