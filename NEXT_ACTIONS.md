@@ -119,7 +119,7 @@ Evidence:
 
 ### NA-0004 — Reference Deployment Validation + Promotion Gate Evidence
 
-Status: READY
+Status: DONE
 
 Problem:
 - The constrained-host lane is now grounded, but the project still lacks stronger reference-deployment evidence showing how the integrated message + attachment system behaves on a materially stronger host profile before any default-path promotion or legacy deprecation decision can be made honestly.
@@ -145,3 +145,12 @@ Acceptance:
 1) stronger reference deployment evidence is recorded truthfully
 2) mixed message + attachment validation is recorded truthfully
 3) queue/evidence updated truthfully
+
+Evidence:
+- implementation PR: https://github.com/QuantumShieldLabs/qsl-attachments/pull/10
+- merge SHA: `3d3f1b6591180763cda020a35b684713bc58cc2b`
+- mergedAt: `2026-03-19T03:04:24Z`
+- stronger reference deployment summary: `qatt` now serves as a reproducible materially stronger reference host than constrained-host `qsl`, with the install/update/verify path captured in `docs/NA-0004_reference_deployment_runbook.md`; the deployed service stayed on loopback behind Caddy TLS, preserved the single-node local-disk runtime posture, and did not require any new qsl-attachments runtime changes.
+- mixed message + attachment validation summary: direct evidence now covers message-only relay traffic, service-backed `5 MiB` / `16 MiB` / `64 MiB` / `100 MiB` attachment runs, mixed `16 MiB` message + attachment traffic, upload interruption-resume, direct service restart, bounded concurrency with two parallel mixed peers, and a five-iteration mixed short soak over the real relay plus `qatt`.
+- saturation-vs-correctness summary: no qsl-attachments correctness failure was proven on the stronger reference deployment; corrected `< 4 MiB` and exact `4 MiB` threshold reruns remained weak-relay / legacy-path bounded saturation (`timeout` and `relay_inbox_queue_full`) with `qatt` effectively idle, so the remaining blocker is broader mixed message + attachment stress/soak/chaos evidence rather than reference-host hardening.
+- secret-safe evidence hygiene: the evidence bundle and `qatt` service/proxy journal scans found no raw bearer tokens, resume tokens, fetch capabilities, or secret-bearing canonical URLs, and no plaintext attachment content appeared on service surfaces.
