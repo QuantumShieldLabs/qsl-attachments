@@ -154,3 +154,32 @@ Evidence:
 - mixed message + attachment validation summary: direct evidence now covers message-only relay traffic, service-backed `5 MiB` / `16 MiB` / `64 MiB` / `100 MiB` attachment runs, mixed `16 MiB` message + attachment traffic, upload interruption-resume, direct service restart, bounded concurrency with two parallel mixed peers, and a five-iteration mixed short soak over the real relay plus `qatt`.
 - saturation-vs-correctness summary: no qsl-attachments correctness failure was proven on the stronger reference deployment; corrected `< 4 MiB` and exact `4 MiB` threshold reruns remained weak-relay / legacy-path bounded saturation (`timeout` and `relay_inbox_queue_full`) with `qatt` effectively idle, so the remaining blocker is broader mixed message + attachment stress/soak/chaos evidence rather than reference-host hardening.
 - secret-safe evidence hygiene: the evidence bundle and `qatt` service/proxy journal scans found no raw bearer tokens, resume tokens, fetch capabilities, or secret-bearing canonical URLs, and no plaintext attachment content appeared on service surfaces.
+
+### NA-0005 — Message + Attachment Stress / Soak / Chaos Validation
+
+Status: READY
+
+Problem:
+- The stronger reference deployment is now grounded, but the project still lacks bounded kitchen-sink evidence showing how mixed message + attachment traffic behaves under broader concurrency, soak, restart/recovery, and weak-host versus stronger-reference-host comparison before any default-path promotion or legacy deprecation decision can be made honestly.
+
+Scope:
+- qsl-attachments runtime/ops/docs as needed for bounded stress/soak/chaos validation over weak-host and stronger reference-host profiles
+- no qsl-server work
+- no qsl-protocol semantic changes
+
+Must protect:
+- no plaintext on service surfaces
+- no capability-like secrets in canonical URLs
+- mixed message + attachment evidence must distinguish correctness failure, bounded saturation, and deployment immaturity honestly
+- qsl-server remains transport-only
+
+Deliverables:
+1) execute the bounded stress/soak/chaos matrix across message-only, attachment-only, and mixed traffic over the real relay while using `qsl` as the weak-host baseline and `qatt` as the stronger reference host
+2) capture CPU/memory/disk/retry/backpressure/latency/recovery evidence for concurrency ramps, bounded soak, and restart/recovery stages
+3) classify every degraded or failing stage explicitly as correctness failure, bounded saturation/degradation, or deployment immaturity
+4) identify the exact remaining blocker to default attachment-path promotion and legacy `<= 4 MiB` deprecation decisions
+
+Acceptance:
+1) mixed message + attachment stress/soak/chaos evidence is recorded truthfully
+2) weak-host versus stronger-reference-host comparison is recorded truthfully
+3) queue/evidence updated truthfully
