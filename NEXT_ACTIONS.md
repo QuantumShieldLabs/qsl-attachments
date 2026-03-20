@@ -157,7 +157,7 @@ Evidence:
 
 ### NA-0005 — Message + Attachment Stress / Soak / Chaos Validation
 
-Status: READY
+Status: DONE
 
 Problem:
 - The stronger reference deployment is now grounded, but the project still lacks bounded kitchen-sink evidence showing how mixed message + attachment traffic behaves under broader concurrency, soak, restart/recovery, and weak-host versus stronger-reference-host comparison before any default-path promotion or legacy deprecation decision can be made honestly.
@@ -183,3 +183,13 @@ Acceptance:
 1) mixed message + attachment stress/soak/chaos evidence is recorded truthfully
 2) weak-host versus stronger-reference-host comparison is recorded truthfully
 3) queue/evidence updated truthfully
+
+Closeout evidence:
+- closeout path: `Y1`
+- implementation PR: https://github.com/QuantumShieldLabs/qsl-attachments/pull/13
+- merge SHA: `72fd5441262626ef644b6877ad8a0e29bf275583`
+- mergedAt: `2026-03-20T11:33:47Z`
+- mixed message + attachment validation summary: the bounded kitchen-sink lane now includes message-only relay traffic, mixed `5 MiB` exchanges on weak-host `qsl` and stronger reference-host `qatt`, service-backed `16 MiB` / `64 MiB` / `100 MiB` reference-host transfers, restart and resumed-upload recovery on `qatt`, mixed concurrency ramps on `qsl` and `qatt`, and a `30` minute mixed soak on `qatt`.
+- weak-host versus reference-host summary: `qsl` remained the weak-host / weak-relay baseline and continued to expose bounded threshold-path degradation, while `qatt` remained the stronger reference deployment and stayed bounded through large files, restart/recovery, concurrency up to `8`, and the `30` minute mixed soak window.
+- saturation-vs-correctness summary: no qsl-attachments correctness failure or load-bearing deployment immaturity was proven; the only degraded required stages stayed on the weak-host / weak-relay legacy threshold path (`< 4 MiB` and exact `4 MiB`) as explicit bounded `relay_inbox_queue_full` saturation that failed closed without dishonest delivery state.
+- secret-safe evidence hygiene: the committed evidence artifact and the service/proxy journal scans found no raw bearer tokens, resume tokens, fetch capabilities, or secret-bearing canonical URLs, and no plaintext attachment content appeared on service surfaces.
