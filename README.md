@@ -21,7 +21,7 @@ Current state:
 - qsc/client integration exists upstream in qsl-protocol
 - constrained-host operational hardening and real-world validation now have direct evidence in `tests/NA-0003_constrained_host_validation_evidence.md`
 - stronger reference-deployment validation and promotion-gate evidence now exist in `tests/NA-0004_reference_deployment_validation_evidence.md`
-- the current evidence says broader mixed message + attachment stress/soak/chaos validation still outranks any default-path promotion or legacy deprecation decision
+- bounded stress/soak/chaos evidence now exists in `tests/NA-0005_stress_soak_chaos_evidence.md`
 
 Runtime shape in this item:
 - opaque ciphertext part files on local disk
@@ -38,6 +38,7 @@ Operational posture:
 - constrained-host execution evidence now lives in `tests/NA-0003_constrained_host_validation_evidence.md`
 - the stronger reference-host install/update path now lives in `docs/NA-0004_reference_deployment_runbook.md`
 - stronger reference-deployment validation evidence now lives in `tests/NA-0004_reference_deployment_validation_evidence.md`
+- bounded stress/soak/chaos evidence now lives in `tests/NA-0005_stress_soak_chaos_evidence.md`
 
 Canonical references:
 - https://github.com/QuantumShieldLabs/qsl-protocol/blob/main/docs/canonical/DOC-CAN-005_QSP_Attachment_Descriptor_and_Control_Plane_v0.1.0_DRAFT.md

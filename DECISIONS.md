@@ -84,3 +84,22 @@
     - treat the exact `4 MiB` weak-relay queue saturation as a qsl-attachments reference-host defect (rejected: `qatt` remained effectively idle and the service path was not the bottleneck)
     - jump directly to default-path promotion / legacy deprecation after the reference runs (rejected: broader mixed message + attachment stress/soak/chaos evidence still outranks that decision)
   - **References:** `README.md`; `START_HERE.md`; `TRACEABILITY.md`; `docs/NA-0004_reference_deployment_runbook.md`; `tests/NA-0004_reference_deployment_validation_evidence.md`; qsl-protocol `docs/design/DOC-ATT-002_qsl-attachments_Deployment_and_Operational_Hardening_Contract_v0.1.0_DRAFT.md`
+
+
+- **ID:** D-0006
+  - **Status:** Accepted
+  - **Date:** 2026-03-20
+  - **Goals:** G4, G5
+  - **Decision:** `NA-0005` executes the bounded kitchen-sink validation lane without changing attachment semantics: `qsl` remains the weak-host / weak-relay baseline, `qatt` remains the stronger reference deployment, and the integrated message + attachment system is exercised through mixed traffic, concurrency ramps, restart/recovery, and a `30` minute mixed soak. The reference host stayed bounded through large files, restart, resumed upload, concurrency up to `8`, and short soak. The only degraded required stages remained on the weak-host / weak-relay legacy threshold path, where `< 4 MiB` and exact `4 MiB` failed closed with explicit `relay_inbox_queue_full` pressure after bounded retries. No qsl-attachments correctness failure or load-bearing deployment immaturity was proven, so the honest next blocker becomes the default attachment-path promotion / legacy in-message deprecation decision rather than another stress or hardening lane.
+  - **Invariants:**
+    - no plaintext attachment handling on service surfaces
+    - no capability-like secrets in canonical URLs
+    - weak-host / weak-relay degradation must stay distinct from attachment-service correctness
+    - the stronger reference deployment must preserve the current single-node local-disk runtime truthfully
+    - qsl-protocol canonical docs remain authoritative for attachment semantics
+    - qsl-server remains separate and transport-only
+  - **Alternatives Considered:**
+    - classify the weak threshold failures as qsl-attachments correctness defects (rejected: they remained explicit relay-side bounded saturation with no dishonest delivery state)
+    - open another qsl-attachments-local hardening lane after this evidence (rejected: no direct repo-local blocker outranked the default-path / legacy decision)
+    - continue the kitchen-sink lane beyond concurrency `8` and a `30` minute soak in this item (rejected: bounded evidence is already strong enough to move the blocker back to qsl-protocol)
+  - **References:** `README.md`; `START_HERE.md`; `TRACEABILITY.md`; `tests/NA-0005_stress_soak_chaos_evidence.md`; qsl-protocol `NEXT_ACTIONS.md`; qsl-protocol `TRACEABILITY.md`
