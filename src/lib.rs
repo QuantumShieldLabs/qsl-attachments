@@ -218,9 +218,9 @@ impl DiskSpace for TestDiskSpace {
 #[derive(Clone, Debug, Serialize, PartialEq, Eq)]
 pub struct AuditEvent {
     pub kind: String,
-    pub session_id: Option<String>,
-    pub locator_ref: Option<String>,
-    pub attachment_id: Option<String>,
+    pub session_handle: Option<String>,
+    pub locator_handle: Option<String>,
+    pub attachment_handle: Option<String>,
     pub reason_code: Option<String>,
 }
 
@@ -233,9 +233,9 @@ impl AuditLog {
     fn record(&self, event: AuditEvent) {
         info!(
             kind = %event.kind,
-            session_id = event.session_id.as_deref().unwrap_or(""),
-            locator_ref = event.locator_ref.as_deref().unwrap_or(""),
-            attachment_id = event.attachment_id.as_deref().unwrap_or(""),
+            session_handle = event.session_handle.as_deref().unwrap_or(""),
+            locator_handle = event.locator_handle.as_deref().unwrap_or(""),
+            attachment_handle = event.attachment_handle.as_deref().unwrap_or(""),
             reason_code = event.reason_code.as_deref().unwrap_or(""),
             "qatt audit event"
         );
@@ -351,9 +351,9 @@ impl AppState {
         }
         self.inner.audit.record(AuditEvent {
             kind: "quota_reject".to_owned(),
-            session_id: session_id.map(str::to_owned),
-            locator_ref: None,
-            attachment_id: attachment_id.map(str::to_owned),
+            session_handle: audit_handle_opt("session", session_id),
+            locator_handle: None,
+            attachment_handle: audit_handle_opt("attachment", attachment_id),
             reason_code: Some("REJECT_QATTSVC_QUOTA".to_owned()),
         });
         Err(ServiceError::quota(
@@ -377,9 +377,12 @@ impl AppState {
                 self.inner.storage.save_session(&session)?;
                 self.inner.audit.record(AuditEvent {
                     kind: "session_expired".to_owned(),
-                    session_id: Some(session.session_id.clone()),
-                    locator_ref: None,
-                    attachment_id: Some(session.attachment_id.clone()),
+                    session_handle: audit_handle_opt("session", Some(session.session_id.as_str())),
+                    locator_handle: None,
+                    attachment_handle: audit_handle_opt(
+                        "attachment",
+                        Some(session.attachment_id.as_str()),
+                    ),
                     reason_code: Some("REJECT_QATTSVC_EXPIRED".to_owned()),
                 });
             }
@@ -397,9 +400,12 @@ impl AppState {
                 self.inner.storage.save_object(&object)?;
                 self.inner.audit.record(AuditEvent {
                     kind: "object_expired".to_owned(),
-                    session_id: None,
-                    locator_ref: Some(object.locator_ref.clone()),
-                    attachment_id: Some(object.attachment_id.clone()),
+                    session_handle: None,
+                    locator_handle: audit_handle_opt("locator", Some(object.locator_ref.as_str())),
+                    attachment_handle: audit_handle_opt(
+                        "attachment",
+                        Some(object.attachment_id.as_str()),
+                    ),
                     reason_code: Some("REJECT_QATTSVC_EXPIRED".to_owned()),
                 });
             }
@@ -466,9 +472,9 @@ impl AppState {
         self.inner.storage.create_session(&session)?;
         self.inner.audit.record(AuditEvent {
             kind: "session_created".to_owned(),
-            session_id: Some(session_id.clone()),
-            locator_ref: None,
-            attachment_id: Some(session.attachment_id.clone()),
+            session_handle: audit_handle_opt("session", Some(session_id.as_str())),
+            locator_handle: None,
+            attachment_handle: audit_handle_opt("attachment", Some(session.attachment_id.as_str())),
             reason_code: None,
         });
 
@@ -569,9 +575,9 @@ impl AppState {
         self.inner.storage.save_session(&session)?;
         self.inner.audit.record(AuditEvent {
             kind: "part_uploaded".to_owned(),
-            session_id: Some(session.session_id.clone()),
-            locator_ref: None,
-            attachment_id: Some(session.attachment_id.clone()),
+            session_handle: audit_handle_opt("session", Some(session.session_id.as_str())),
+            locator_handle: None,
+            attachment_handle: audit_handle_opt("attachment", Some(session.attachment_id.as_str())),
             reason_code: None,
         });
 
@@ -721,9 +727,9 @@ impl AppState {
         self.inner.storage.remove_session(&session.session_id)?;
         self.inner.audit.record(AuditEvent {
             kind: "session_committed".to_owned(),
-            session_id: Some(session.session_id.clone()),
-            locator_ref: Some(locator_ref.clone()),
-            attachment_id: Some(session.attachment_id.clone()),
+            session_handle: audit_handle_opt("session", Some(session.session_id.as_str())),
+            locator_handle: audit_handle_opt("locator", Some(locator_ref.as_str())),
+            attachment_handle: audit_handle_opt("attachment", Some(session.attachment_id.as_str())),
             reason_code: None,
         });
 
@@ -779,9 +785,9 @@ impl AppState {
         self.inner.storage.save_session(&session)?;
         self.inner.audit.record(AuditEvent {
             kind: "session_aborted".to_owned(),
-            session_id: Some(session.session_id.clone()),
-            locator_ref: None,
-            attachment_id: Some(session.attachment_id.clone()),
+            session_handle: audit_handle_opt("session", Some(session.session_id.as_str())),
+            locator_handle: None,
+            attachment_handle: audit_handle_opt("attachment", Some(session.attachment_id.as_str())),
             reason_code: None,
         });
         Ok(AbortResponse {
@@ -860,9 +866,9 @@ impl AppState {
 
         self.inner.audit.record(AuditEvent {
             kind: "object_fetched".to_owned(),
-            session_id: None,
-            locator_ref: Some(locator_ref.to_owned()),
-            attachment_id: Some(object.attachment_id),
+            session_handle: None,
+            locator_handle: audit_handle_opt("locator", Some(locator_ref)),
+            attachment_handle: audit_handle_opt("attachment", Some(object.attachment_id.as_str())),
             reason_code: None,
         });
 
@@ -1780,6 +1786,15 @@ fn leaf_hash(index: u32, bytes: &[u8]) -> [u8; 64] {
 
 fn hash_secret(secret: &str) -> String {
     hex::encode(Sha512::digest(secret.as_bytes()))
+}
+
+fn audit_handle(namespace: &str, raw: &str) -> String {
+    let digest = Sha512::digest(format!("qatt.audit.v1|{namespace}|{raw}").as_bytes());
+    hex::encode(digest)[..12].to_string()
+}
+
+fn audit_handle_opt(namespace: &str, raw: Option<&str>) -> Option<String> {
+    raw.map(|value| audit_handle(namespace, value))
 }
 
 fn random_token(byte_len: usize) -> String {

@@ -847,7 +847,7 @@ async fn valid_single_range_retrieval() {
 }
 
 #[tokio::test]
-async fn audit_log_redacts_secrets_and_plaintext() {
+async fn audit_log_redacts_secrets_plaintext_and_full_identifiers() {
     let fixture = Fixture::new();
     let (parts, request) = one_part_payload(7, b"ciphertext-not-logged", RetentionClass::Standard);
     let create = fixture
@@ -861,6 +861,7 @@ async fn audit_log_redacts_secrets_and_plaintext() {
     let create_body: serde_json::Value = read_json(create).await;
     let session_id = create_body["session_id"].as_str().unwrap().to_owned();
     let resume_token = create_body["resume_token"].as_str().unwrap().to_owned();
+    let attachment_id = request.attachment_id.clone();
     fixture
         .bytes_request(
             Method::PUT,
@@ -875,7 +876,7 @@ async fn audit_log_redacts_secrets_and_plaintext() {
             &format!("/v1/attachments/sessions/{session_id}/commit"),
             &[("X-QATT-Resume-Token", &resume_token)],
             serde_json::to_value(CommitRequest {
-                attachment_id: request.attachment_id,
+                attachment_id,
                 ciphertext_len: request.ciphertext_len,
                 part_count: request.part_count,
                 integrity_alg: request.integrity_alg,
@@ -886,11 +887,18 @@ async fn audit_log_redacts_secrets_and_plaintext() {
         )
         .await;
     let commit_body: serde_json::Value = read_json(commit).await;
+    let locator_ref = commit_body["locator_ref"].as_str().unwrap().to_owned();
     let fetch_capability = commit_body["fetch_capability"].as_str().unwrap().to_owned();
     let audit_json = serde_json::to_string(&fixture.state.audit_snapshot()).unwrap();
     assert!(!audit_json.contains(&resume_token));
     assert!(!audit_json.contains(&fetch_capability));
     assert!(!audit_json.contains("ciphertext-not-logged"));
+    assert!(!audit_json.contains(&session_id));
+    assert!(!audit_json.contains(request.attachment_id.as_str()));
+    assert!(!audit_json.contains(&locator_ref));
+    assert!(audit_json.contains("\"session_handle\""), "{audit_json}");
+    assert!(audit_json.contains("\"attachment_handle\""), "{audit_json}");
+    assert!(audit_json.contains("\"locator_handle\""), "{audit_json}");
 }
 
 #[tokio::test]
