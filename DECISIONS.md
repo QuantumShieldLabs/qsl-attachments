@@ -103,3 +103,22 @@
     - open another qsl-attachments-local hardening lane after this evidence (rejected: no direct repo-local blocker outranked the default-path / legacy decision)
     - continue the kitchen-sink lane beyond concurrency `8` and a `30` minute soak in this item (rejected: bounded evidence is already strong enough to move the blocker back to qsl-protocol)
   - **References:** `README.md`; `START_HERE.md`; `TRACEABILITY.md`; `tests/NA-0005_stress_soak_chaos_evidence.md`; qsl-protocol `NEXT_ACTIONS.md`; qsl-protocol `TRACEABILITY.md`
+
+
+- **ID:** D-0007
+  - **Status:** Accepted
+  - **Date:** 2026-03-28
+  - **Goals:** G4, G5
+  - **Decision:** `NA-0007` freezes the qsl-attachments authn/authz / policy-subject contract as an operator-scoped single-node deployment model. The sole current service policy subject is the operator-controlled deployment; `resume_token` and `fetch_capability` remain per-resource authorizers rather than service-account identities; deployment-global quota and abuse ceilings remain owned by that operator-scoped deployment subject; and any later repo-local `Authorization` layer must stay deployment-local unless a new contract item explicitly broadens the model.
+  - **Invariants:**
+    - no plaintext attachment handling on service surfaces
+    - no capability-like secrets in canonical URLs
+    - qsl-attachments remains opaque ciphertext-only
+    - qsl-server remains separate and transport-only
+    - `session_id`, `locator_ref`, and `attachment_id` remain resource references, not service principals
+    - passive logs and evidence continue to prefer short deterministic handles over full stable identifiers
+  - **Alternatives Considered:**
+    - treat `attachment_id`, `session_id`, or `locator_ref` as implicit service identities (rejected: they are resource references and would create dishonest auth semantics)
+    - hold the repo in an operator-scoped continued-support posture without freezing the contract (rejected: the evidence is already sufficient to freeze the boundary and move to explicit implementation)
+    - define a multi-tenant or peer-identity service auth layer now (rejected: not supported by current evidence and would invent new semantics)
+  - **References:** `README.md`; `START_HERE.md`; `TRACEABILITY.md`; `docs/NA-0007_authn_authz_policy_subject_contract.md`; `tests/NA-0003_constrained_host_validation_evidence.md`; `tests/NA-0004_reference_deployment_validation_evidence.md`; `tests/NA-0005_stress_soak_chaos_evidence.md`; `src/lib.rs`; `tests/service_contract.rs`; qsl-protocol `docs/canonical/DOC-CAN-006_QATT_Attachment_Service_Contract_v0.1.0_DRAFT.md`; qsl-protocol `docs/design/DOC-G5-004_Metadata_Leakage_Surface_Review_and_Logging_Contract_v0.1.0_DRAFT.md`
