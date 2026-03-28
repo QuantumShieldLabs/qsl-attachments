@@ -233,7 +233,7 @@ Closeout evidence:
 
 ### NA-0007 — Authn/Authz / Policy Subject Contract
 
-Status: READY
+Status: DONE
 
 Problem:
 - The next load-bearing blocker in qsl-attachments is the missing authn/authz / policy-subject contract, which determines what identities, quotas, policy subjects, and metadata exposures are legitimate for the service.
@@ -260,4 +260,55 @@ Deliverables:
 Acceptance:
 1) the contract is explicit and evidence-backed
 2) no attachment-service semantic redesign occurs in this item
+3) queue/evidence updated truthfully
+
+Closeout evidence:
+- closeout path: `AT1`
+- promotion PR: https://github.com/QuantumShieldLabs/qsl-attachments/pull/18
+- promotion merge SHA: `737b081133a9`
+- promotion mergedAt: `2026-03-28T23:26:29Z`
+- implementation PR: https://github.com/QuantumShieldLabs/qsl-attachments/pull/19
+- implementation merge SHA: `bdcb68803e24`
+- implementation mergedAt: `2026-03-28T23:32:51Z`
+- qsl-protocol linkage PR: https://github.com/QuantumShieldLabs/qsl-protocol/pull/589
+- qsl-protocol linkage merge SHA: `cabaaeedcbfc`
+- qsl-protocol linkage mergedAt: `2026-03-28T23:37:34Z`
+- exact chosen result: `ASC0`
+- exact contract summary:
+  - the sole current service policy subject is the operator-scoped deployment
+  - `resume_token` and `fetch_capability` remain per-resource authorizers rather than service-account identities
+  - deployment-global quota and abuse ceilings remain owned by the operator-scoped deployment subject
+  - legitimate operator-visible metadata remains limited to non-secret refs, short deterministic handles, state, and reason codes
+- exact reason the next blocker is truthful:
+  - the current service/runtime evidence already distinguishes the real policy subject, the current capability authorizers, and quota ownership without semantic invention
+  - the remaining work is to implement that explicit contract in qsl-attachments runtime/tests/docs/operator surfaces rather than run another contract-finalization lane
+
+### NA-0008 — Authn/Authz / Policy Subject Implementation
+
+Status: READY
+
+Problem:
+- `NA-0007` froze the qsl-attachments authn/authz / policy-subject contract clearly enough that the next blocker is now implementing it.
+
+Scope:
+- qsl-attachments runtime/tests/docs as needed to implement the frozen contract
+- no qsl-protocol semantic redesign
+- no qsl-server work
+- no website/.github work
+
+Must protect:
+- no plaintext attachment handling on service surfaces
+- no capability-like secrets in canonical URLs
+- qsl-attachments remains opaque ciphertext-only
+- qsl-server remains transport-only
+
+Deliverables:
+1) implement the frozen authn/authz / policy-subject contract
+2) update operator/help/runbook surfaces truthfully
+3) add deterministic tests proving the implemented behavior
+4) update queue/evidence truthfully
+
+Acceptance:
+1) the contract is implemented exactly as frozen
+2) no secret-bearing URL regression or attachment-service semantic redesign is introduced
 3) queue/evidence updated truthfully
