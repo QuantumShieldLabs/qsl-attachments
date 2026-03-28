@@ -230,3 +230,34 @@ Closeout evidence:
 - enforcement summary: passive audit-log events now replace full `session_id`, `locator_ref`, and `attachment_id` values with short deterministic handles, preserving operator-visible correlation without leaking stable identifiers on passive log or audit snapshot surfaces.
 - deterministic proof summary: `tests/service_contract.rs` now proves audit snapshots still exclude resume tokens, fetch capabilities, plaintext payload markers, and the full session / attachment / locator identifiers while exposing only the minimized handle fields.
 - queue summary: qsl-attachments returns to `READY=0` because the remaining blocker is no longer a repo-local metadata / secret-hygiene enforcement gap; the next load-bearing issue is the upstream authn/authz / policy-subject contract.
+
+### NA-0007 — Authn/Authz / Policy Subject Contract
+
+Status: READY
+
+Problem:
+- The next load-bearing blocker in qsl-attachments is the missing authn/authz / policy-subject contract, which determines what identities, quotas, policy subjects, and metadata exposures are legitimate for the service.
+
+Scope:
+- qsl-attachments docs/evidence/governance as needed to define the contract
+- qsl-protocol linkage/evidence as needed
+- no qsl-server work
+- no runtime changes yet
+- no website/.github work
+
+Must protect:
+- no plaintext attachment handling on service surfaces
+- no capability-like secrets in canonical URLs
+- qsl-attachments remains opaque ciphertext-only
+- qsl-server remains transport-only
+
+Deliverables:
+1) define the authn/authz / policy-subject contract
+2) define what operator-visible identities, quotas, and policy subjects exist and what metadata they legitimately expose
+3) identify the smallest truthful implementation lane implied by that contract
+4) update queue/evidence truthfully
+
+Acceptance:
+1) the contract is explicit and evidence-backed
+2) no attachment-service semantic redesign occurs in this item
+3) queue/evidence updated truthfully
