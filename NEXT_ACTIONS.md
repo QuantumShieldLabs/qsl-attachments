@@ -196,7 +196,7 @@ Closeout evidence:
 
 ### NA-0006 — Metadata / Secret-Hygiene Enforcement
 
-Status: READY
+Status: DONE
 
 Problem:
 - The frozen metadata / secret-hygiene contract now requires enforcement on qsl-attachments surfaces, but qsl-attachments currently has no active repo-local lane for that work.
@@ -222,3 +222,11 @@ Acceptance:
 1) qsl-attachments surfaces that are in scope for the frozen metadata / secret-hygiene contract are enforced truthfully
 2) no attachment-service semantic redesign occurs
 3) queue/evidence updated truthfully
+
+Closeout evidence:
+- implementation PR: https://github.com/QuantumShieldLabs/qsl-attachments/pull/16
+- merge SHA: `5e58490551183ee8830f595a0de6728917dbaab8`
+- mergedAt: `2026-03-28T22:27:19Z`
+- enforcement summary: passive audit-log events now replace full `session_id`, `locator_ref`, and `attachment_id` values with short deterministic handles, preserving operator-visible correlation without leaking stable identifiers on passive log or audit snapshot surfaces.
+- deterministic proof summary: `tests/service_contract.rs` now proves audit snapshots still exclude resume tokens, fetch capabilities, plaintext payload markers, and the full session / attachment / locator identifiers while exposing only the minimized handle fields.
+- queue summary: qsl-attachments returns to `READY=0` because the remaining blocker is no longer a repo-local metadata / secret-hygiene enforcement gap; the next load-bearing issue is the upstream authn/authz / policy-subject contract.
