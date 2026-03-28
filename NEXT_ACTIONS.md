@@ -193,3 +193,32 @@ Closeout evidence:
 - weak-host versus reference-host summary: `qsl` remained the weak-host / weak-relay baseline and continued to expose bounded threshold-path degradation, while `qatt` remained the stronger reference deployment and stayed bounded through large files, restart/recovery, concurrency up to `8`, and the `30` minute mixed soak window.
 - saturation-vs-correctness summary: no qsl-attachments correctness failure or load-bearing deployment immaturity was proven; the only degraded required stages stayed on the weak-host / weak-relay legacy threshold path (`< 4 MiB` and exact `4 MiB`) as explicit bounded `relay_inbox_queue_full` saturation that failed closed without dishonest delivery state.
 - secret-safe evidence hygiene: the committed evidence artifact and the service/proxy journal scans found no raw bearer tokens, resume tokens, fetch capabilities, or secret-bearing canonical URLs, and no plaintext attachment content appeared on service surfaces.
+
+### NA-0006 — Metadata / Secret-Hygiene Enforcement
+
+Status: READY
+
+Problem:
+- The frozen metadata / secret-hygiene contract now requires enforcement on qsl-attachments surfaces, but qsl-attachments currently has no active repo-local lane for that work.
+
+Scope:
+- qsl-attachments runtime/tests/docs only as needed to enforce the already-frozen metadata / secret-hygiene contract
+- no qsl-protocol semantic redesign
+- no qsl-server work
+- no website/.github work
+
+Must protect:
+- no plaintext attachment handling on service surfaces
+- no capability-like secrets in canonical URLs, passive logs, journals, evidence artifacts, or operator-facing outputs where the frozen contract forbids them
+- qsl-attachments remains opaque ciphertext-only
+- qsl-server remains transport-only
+
+Deliverables:
+1) enforce the frozen metadata / secret-hygiene contract on qsl-attachments surfaces that still violate it
+2) add deterministic tests or evidence proving the corrected behavior
+3) update queue/evidence truthfully
+
+Acceptance:
+1) qsl-attachments surfaces that are in scope for the frozen metadata / secret-hygiene contract are enforced truthfully
+2) no attachment-service semantic redesign occurs
+3) queue/evidence updated truthfully
