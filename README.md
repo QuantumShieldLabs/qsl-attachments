@@ -34,6 +34,8 @@ Operational posture:
 - `main` currently requires only the `rust` check
 - startup now emits an operator-safe runtime configuration summary, and storage-headroom rejects fail closed before weak hosts exhaust disk during validation
 - no deployment automation or multi-node storage backend is present yet
+- the authn/authz / policy-subject contract now lives in `docs/NA-0007_authn_authz_policy_subject_contract.md`
+- current service auth remains operator-scoped deployment policy plus per-session/object capability authorization; no separate end-user service principal exists today
 - the implementation-grade operational contract now lives in `docs/NA-0002_operational_hardening_contract.md`
 - constrained-host execution evidence now lives in `tests/NA-0003_constrained_host_validation_evidence.md`
 - the stronger reference-host install/update path now lives in `docs/NA-0004_reference_deployment_runbook.md`
