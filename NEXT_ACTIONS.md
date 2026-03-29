@@ -379,7 +379,7 @@ Closeout evidence:
 
 ### NA-0010 — Durability / Recovery Implementation
 
-Status: READY
+Status: DONE
 
 Problem:
 - `NA-0009` froze the qsl-attachments durability / recovery contract clearly enough that the next blocker is now implementing it.
@@ -405,4 +405,46 @@ Deliverables:
 Acceptance:
 1) the contract is implemented exactly as frozen
 2) no secret-bearing URL regression or attachment-service semantic redesign is introduced
+3) queue/evidence updated truthfully
+
+Closeout evidence:
+- closeout path: `AW1`
+- implementation PR: https://github.com/QuantumShieldLabs/qsl-attachments/pull/26
+- merge SHA: `4a6b2c4eee7a40b64b050859a760e2e72b858911`
+- mergedAt: `2026-03-29T02:19:04Z`
+- implementation summary:
+  - qsl-attachments runtime now performs explicit startup reconciliation on the same storage root: only coherent open sessions and committed objects are re-exposed, orphaned staged/object artifacts are discarded, and no stronger crash or backup semantics are invented
+  - deterministic tests now prove graceful same-root restart, paired-file committed-object recovery (`object.json` + `ciphertext.bin`), fail-closed discard of incoherent recovery artifacts, and repo-local docs truthfulness for the supported restart/backup boundary
+  - operator-visible startup markers and repo-local docs now state the implemented durability posture explicitly: same-root graceful restart is supported, cold full-root backup/restore plus matching service configuration is the only supported backup shape, and abrupt-crash/open-session survival remains unsupported
+- queue summary:
+  - `NA-0010` is complete enough that the next blocker is merged-lane validation + cleanup rather than another direct durability / recovery implementation gap
+
+### NA-0010A — Durability / Recovery Validation + Cleanup
+
+Status: READY
+
+Problem:
+- `NA-0010` implemented the frozen durability / recovery contract, so the next blocker is validating the merged durability / recovery lane end-to-end and cleaning up any remaining deterministic tests, runbooks, or evidence assumptions.
+
+Scope:
+- qsl-attachments tests/docs/evidence as needed to validate the merged durability / recovery lane
+- no qsl-protocol semantic redesign
+- no qsl-server work
+- no website/.github work
+
+Must protect:
+- no plaintext attachment handling on service surfaces
+- no capability-like secrets in canonical URLs
+- qsl-attachments remains opaque ciphertext-only
+- qsl-server remains transport-only
+
+Deliverables:
+1) run and record post-merge validation for the durability / recovery lane
+2) close any remaining deterministic test/runbook/evidence cleanup
+3) prove the merged lane is clean enough that the next blocker is not another direct implementation gap
+4) update queue/evidence truthfully
+
+Acceptance:
+1) post-merge evidence confirms durability / recovery behavior truthfully
+2) no attachment-service semantic redesign is introduced
 3) queue/evidence updated truthfully
