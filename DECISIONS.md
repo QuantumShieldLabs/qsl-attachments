@@ -160,3 +160,22 @@
     - keep the repo in a continued-support/operator-scoped posture without freezing the contract (`DRC2`) (rejected: that would hide the real next blocker, which is deterministic implementation of crash/recovery handling under the already-evident local-disk boundary)
     - define distributed, object-store, or replicated durability semantics now (rejected: not supported by current evidence and out of scope for the current operator-scoped service)
   - **References:** `README.md`; `START_HERE.md`; `TRACEABILITY.md`; `docs/NA-0009_durability_recovery_contract.md`; `src/lib.rs`; `tests/service_contract.rs`; `tests/NA-0003_constrained_host_validation_evidence.md`; `tests/NA-0004_reference_deployment_validation_evidence.md`; `tests/NA-0005_stress_soak_chaos_evidence.md`; qsl-protocol `docs/canonical/DOC-CAN-006_QATT_Attachment_Service_Contract_v0.1.0_DRAFT.md`; qsl-protocol `docs/design/DOC-ATT-002_qsl-attachments_Deployment_and_Operational_Hardening_Contract_v0.1.0_DRAFT.md`; qsl-protocol `docs/design/DOC-G5-004_Metadata_Leakage_Surface_Review_and_Logging_Contract_v0.1.0_DRAFT.md`
+
+
+- **ID:** D-0010
+  - **Status:** Accepted
+  - **Date:** 2026-03-29
+  - **Goals:** G4, G5
+  - **Decision:** `NA-0010A` completes merged-lane durability / recovery validation and cleanup without changing attachment-service runtime semantics. The repo-local operator surfaces now state on the same top-level paths that hot/live backup and partial restore remain unsupported while graceful same-root restart and cold full-root backup/restore stay the only supported recovery boundary, `tests/NA-0010A_durability_recovery_validation_evidence.md` records the post-merge validation matrix truthfully, and `tests/service_contract.rs` now proves those docs/evidence surfaces remain aligned with the frozen contract while secret-safe audit-handle coverage stays intact. The truthful result is that no direct repo-local durability validation/finalization gap remains after this cleanup.
+  - **Invariants:**
+    - no plaintext attachment handling on service surfaces
+    - no capability-like secrets in canonical URLs
+    - qsl-attachments remains opaque ciphertext-only
+    - qsl-server remains separate and transport-only
+    - graceful restart remains same-root only, and cold full-root backup/restore plus matching service configuration remains the only supported backup shape
+    - abrupt-crash/open-session survival, hot/live backup, partial restore, and cross-file transactional durability remain unsupported
+  - **Alternatives Considered:**
+    - promote a direct repo-local durability finalization lane (`NA-0010B`) immediately (rejected: the remaining gaps were operator-surface wording and post-merge evidence cleanup only, and those are now closed with deterministic proof)
+    - widen this item into stronger storage semantics or runtime redesign (rejected: the frozen contract is already unambiguous and this lane is validation/cleanup only)
+    - leave the unsupported-case wording implicit on top-level operator docs (rejected: it leaves stale assumptions in the very surfaces the validation lane is meant to clean up)
+  - **References:** `README.md`; `START_HERE.md`; `TRACEABILITY.md`; `docs/NA-0009_durability_recovery_contract.md`; `tests/NA-0010A_durability_recovery_validation_evidence.md`; `tests/service_contract.rs`; qsl-protocol `DECISIONS.md`
