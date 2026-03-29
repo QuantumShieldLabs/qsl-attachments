@@ -285,7 +285,7 @@ Closeout evidence:
 
 ### NA-0008 — Authn/Authz / Policy Subject Implementation
 
-Status: READY
+Status: DONE
 
 Problem:
 - `NA-0007` froze the qsl-attachments authn/authz / policy-subject contract clearly enough that the next blocker is now implementing it.
@@ -312,3 +312,15 @@ Acceptance:
 1) the contract is implemented exactly as frozen
 2) no secret-bearing URL regression or attachment-service semantic redesign is introduced
 3) queue/evidence updated truthfully
+
+Closeout evidence:
+- closeout path: implementation complete; qsl-attachments returns to `READY=0`
+- implementation PR: https://github.com/QuantumShieldLabs/qsl-attachments/pull/21
+- merge SHA: `d93eb729642a`
+- mergedAt: `2026-03-29T00:32:55Z`
+- implementation summary:
+  - qsl-attachments runtime now exposes `Config::operator_policy_surface()` / `AppState::operator_policy_surface()` and emits the same frozen operator-policy markers at startup, making the operator-scoped deployment subject explicit without adding a new service auth layer
+  - deterministic tests now prove deployment-global open-session quota ownership, many-transfer behavior under one deployment policy/quota, and one-capability-per-resource semantics for both `resume_token` and `fetch_capability`
+  - operator-visible docs now state the same frozen contract wording explicitly: deployment subject only, deployment-global quotas, resource refs are not principals, `Authorization` remains reserved/undefined, and no multi-tenant or per-user service identity exists
+- queue summary:
+  - qsl-attachments returns to `READY=0` because the frozen authn/authz / policy-subject contract is now implemented explicitly enough; the next load-bearing blocker is no longer repo-local auth/policy finalization
