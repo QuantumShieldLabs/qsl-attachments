@@ -35,8 +35,10 @@ Operational posture:
 - startup now emits an operator-safe runtime configuration summary, and storage-headroom rejects fail closed before weak hosts exhaust disk during validation
 - no deployment automation or multi-node storage backend is present yet
 - the authn/authz / policy-subject contract now lives in `docs/NA-0007_authn_authz_policy_subject_contract.md`
+- the durability / recovery contract now lives in `docs/NA-0009_durability_recovery_contract.md`
 - the runtime now exposes an explicit operator policy surface and startup summary stating that the sole current service policy subject is the operator-scoped deployment, quotas are deployment-global, resource refs are not principals, and `Authorization` remains reserved/undefined
 - current service auth remains operator-scoped deployment policy plus per-session/object capability authorization; many transfers remain allowed when deployment policy/quota allows them, but each `resume_token`/`fetch_capability` still authorizes exactly one session/object and no separate end-user service principal exists today
+- the current durability boundary is one local storage root on one node; graceful same-root restart is in scope, cold whole-root backup/restore is the only supported backup shape, and abrupt-crash/open-session recovery remains fail-closed plus bounded operator cleanup rather than cross-file transactional durability
 - the implementation-grade operational contract now lives in `docs/NA-0002_operational_hardening_contract.md`
 - constrained-host execution evidence now lives in `tests/NA-0003_constrained_host_validation_evidence.md`
 - the stronger reference-host install/update path now lives in `docs/NA-0004_reference_deployment_runbook.md`

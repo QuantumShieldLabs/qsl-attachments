@@ -141,3 +141,22 @@
     - keep the operator-scoped deployment subject implicit in runtime/operator surfaces (rejected: leaves the direct implementation lane unfinished and does not provide deterministic proof of the frozen wording)
     - reinterpret resource refs or capabilities as service principals (rejected: dishonest to the frozen contract and would invent new semantics)
   - **References:** `README.md`; `START_HERE.md`; `docs/NA-0007_authn_authz_policy_subject_contract.md`; `src/lib.rs`; `src/main.rs`; `tests/service_contract.rs`; qsl-protocol `docs/canonical/DOC-CAN-006_QATT_Attachment_Service_Contract_v0.1.0_DRAFT.md`; qsl-protocol `DECISIONS.md`
+
+
+- **ID:** D-0009
+  - **Status:** Accepted
+  - **Date:** 2026-03-29
+  - **Goals:** G4, G5
+  - **Decision:** `NA-0009` freezes the qsl-attachments durability / recovery contract as a single-node local-disk boundary. One operator-managed storage root remains the whole durability domain; graceful same-root restart is in scope; cold whole-root backup/restore plus matching service configuration is the only supported backup shape; committed-object recovery requires both `object.json` and `ciphertext.bin`; and abrupt-crash/open-session survival plus cross-file transactional durability are not promised under the current runtime. The truthful result is `DRC0` / closeout path `AV1`: implementation of deterministic crash/recovery handling is now the next blocker.
+  - **Invariants:**
+    - no plaintext attachment handling on service surfaces
+    - no capability-like secrets in canonical URLs
+    - qsl-attachments remains opaque ciphertext-only
+    - qsl-server remains separate and transport-only
+    - the durability boundary remains one operator-managed local storage root on one node only
+    - hot/live backup, multi-node semantics, and cross-file transactional durability are not claimed by this contract
+  - **Alternatives Considered:**
+    - claim one smaller durability-design gap still blocks implementation (`DRC1`) (rejected: the contract can already freeze the unsupported hot-backup/open-session guarantees and the committed-object recovery boundary without further semantic invention)
+    - keep the repo in a continued-support/operator-scoped posture without freezing the contract (`DRC2`) (rejected: that would hide the real next blocker, which is deterministic implementation of crash/recovery handling under the already-evident local-disk boundary)
+    - define distributed, object-store, or replicated durability semantics now (rejected: not supported by current evidence and out of scope for the current operator-scoped service)
+  - **References:** `README.md`; `START_HERE.md`; `TRACEABILITY.md`; `docs/NA-0009_durability_recovery_contract.md`; `src/lib.rs`; `tests/service_contract.rs`; `tests/NA-0003_constrained_host_validation_evidence.md`; `tests/NA-0004_reference_deployment_validation_evidence.md`; `tests/NA-0005_stress_soak_chaos_evidence.md`; qsl-protocol `docs/canonical/DOC-CAN-006_QATT_Attachment_Service_Contract_v0.1.0_DRAFT.md`; qsl-protocol `docs/design/DOC-ATT-002_qsl-attachments_Deployment_and_Operational_Hardening_Contract_v0.1.0_DRAFT.md`; qsl-protocol `docs/design/DOC-G5-004_Metadata_Leakage_Surface_Review_and_Logging_Contract_v0.1.0_DRAFT.md`
