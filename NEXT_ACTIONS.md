@@ -324,3 +324,34 @@ Closeout evidence:
   - operator-visible docs now state the same frozen contract wording explicitly: deployment subject only, deployment-global quotas, resource refs are not principals, `Authorization` remains reserved/undefined, and no multi-tenant or per-user service identity exists
 - queue summary:
   - qsl-attachments returns to `READY=0` because the frozen authn/authz / policy-subject contract is now implemented explicitly enough; the next load-bearing blocker is no longer repo-local auth/policy finalization
+
+### NA-0009 — Durability / Recovery Contract
+
+Status: READY
+
+Problem:
+- The next load-bearing blocker in qsl-attachments is the missing durability / recovery contract, which must define truthful expectations for crash consistency, restart behavior, and backup/restore under the current operator-scoped service posture.
+
+Scope:
+- qsl-attachments docs/evidence/governance as needed to define the contract
+- qsl-protocol linkage/evidence as needed
+- no qsl-server work
+- no runtime changes yet
+- no website/.github work
+
+Must protect:
+- no plaintext attachment handling on service surfaces
+- no capability-like secrets in canonical URLs
+- qsl-attachments remains opaque ciphertext-only
+- qsl-server remains transport-only
+
+Deliverables:
+1) define the durability / recovery contract
+2) define crash consistency, restart, and backup/restore expectations truthfully
+3) identify the smallest truthful implementation lane implied by that contract
+4) update queue/evidence truthfully
+
+Acceptance:
+1) the contract is explicit and evidence-backed
+2) no attachment-service semantic redesign occurs in this item
+3) queue/evidence updated truthfully
