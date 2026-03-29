@@ -1694,18 +1694,28 @@ async fn committed_object_recovery_requires_object_json_and_ciphertext_bin() {
 }
 
 #[test]
-fn durability_docs_state_restart_and_backup_boundary_truthfully() {
+fn durability_docs_and_validation_evidence_state_restart_backup_and_unsupported_cases_truthfully() {
     let readme = include_str!("../README.md");
     let start_here = include_str!("../START_HERE.md");
     let contract = include_str!("../docs/NA-0009_durability_recovery_contract.md");
+    let evidence = include_str!("./NA-0010A_durability_recovery_validation_evidence.md");
 
     assert!(readme.contains("graceful same-root restart is in scope"));
     assert!(readme.contains("cold full-root backup/restore plus matching service configuration"));
+    assert!(readme.contains("hot/live backup and partial restore remain unsupported"));
     assert!(start_here.contains("graceful same-root restart is in scope"));
     assert!(
         start_here.contains("cold full-root backup/restore plus matching service configuration")
     );
-    assert!(contract.contains("A committed object is recoverable only when both `object.json` and `ciphertext.bin` are present"));
+    assert!(start_here.contains("hot/live backup and partial restore remain unsupported"));
+    assert!(contract.contains(
+        "A committed object is recoverable only when both `object.json` and `ciphertext.bin` are present"
+    ));
     assert!(contract.contains("Hot/live backup while mutations continue is unsupported"));
     assert!(contract.contains("Partial restore of only sessions"));
+    assert!(contract.contains("Restored open sessions are best-effort only"));
+    assert!(evidence.contains("graceful same-root restart"));
+    assert!(evidence.contains("`object.json` and `ciphertext.bin`"));
+    assert!(evidence.contains("Hot/live backup and partial restore remain unsupported"));
+    assert!(evidence.contains("audit_log_redacts_secrets_plaintext_and_full_identifiers"));
 }
