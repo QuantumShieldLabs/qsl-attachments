@@ -421,7 +421,7 @@ Closeout evidence:
 
 ### NA-0010A — Durability / Recovery Validation + Cleanup
 
-Status: READY
+Status: DONE
 
 Problem:
 - `NA-0010` implemented the frozen durability / recovery contract, so the next blocker is validating the merged durability / recovery lane end-to-end and cleaning up any remaining deterministic tests, runbooks, or evidence assumptions.
@@ -448,3 +448,15 @@ Acceptance:
 1) post-merge evidence confirms durability / recovery behavior truthfully
 2) no attachment-service semantic redesign is introduced
 3) queue/evidence updated truthfully
+
+Closeout evidence:
+- closeout path: validation/cleanup complete; qsl-attachments returns to `READY=0`
+- implementation PR: https://github.com/QuantumShieldLabs/qsl-attachments/pull/28
+- merge SHA: `f486747c11e7efe5a1b0d35df9b95eabbd28cd70`
+- mergedAt: `2026-03-29T03:08:13Z`
+- exact validation/cleanup summary:
+  - top-level operator surfaces now state explicitly that hot/live backup and partial restore remain unsupported while preserving the frozen same-root graceful restart and cold full-root backup/restore boundary
+  - repo-local evidence now includes `tests/NA-0010A_durability_recovery_validation_evidence.md`, which records the green local validation bundle and the supported versus unsupported recovery posture without inventing stronger storage semantics
+  - deterministic tests re-prove graceful same-root restart, paired-file committed-object recovery, fail-closed discard of incoherent/orphaned recovery artifacts, doc/evidence truthfulness, and secret-safe audit-handle posture
+- queue summary:
+  - qsl-attachments returns to `READY=0` because merged durability / recovery validation and cleanup are now complete enough that no direct repo-local durability blocker remains
