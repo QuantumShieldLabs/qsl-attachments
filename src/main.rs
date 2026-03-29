@@ -12,6 +12,7 @@ async fn main() {
         .init();
 
     let config = Config::from_env().expect("valid configuration");
+    let policy_surface = config.operator_policy_surface();
     info!(
         bind_addr = %config.bind_addr,
         storage_root = %config.storage_root.display(),
@@ -19,6 +20,15 @@ async fn main() {
         max_open_sessions = config.max_open_sessions,
         storage_reserve_bytes = config.storage_reserve_bytes,
         session_ttl_secs = config.session_ttl_secs,
+        service_policy_subject = policy_surface.service_policy_subject,
+        authorization_model = policy_surface.authorization_model,
+        authorization_header = policy_surface.authorization_header,
+        quota_scope = policy_surface.quota_scope,
+        resume_token_scope = policy_surface.resume_token_scope,
+        fetch_capability_scope = policy_surface.fetch_capability_scope,
+        resource_ref_model = policy_surface.resource_ref_model,
+        principal_model = policy_surface.principal_model,
+        transfer_model = policy_surface.transfer_model,
         "qatt startup configuration"
     );
     let bind_addr = config.bind_addr;

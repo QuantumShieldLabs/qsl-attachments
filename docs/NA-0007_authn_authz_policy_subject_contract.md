@@ -144,6 +144,8 @@ Any broader auth model needs a new contract item.
 - The operator-scoped deployment subject remains implicit and out-of-band today.
 - The service does not need to emit a new named `subject_id`, account name, or tenant id in order to satisfy this contract.
 - Default passive logs and evidence MUST continue to prefer short deterministic handles over full stable identifiers.
+- `NA-0008` may make the deployment subject explicit on operator surfaces by emitting an operator-safe policy summary rather than inventing a new end-user identity field.
+- That operator-safe summary MUST preserve the frozen wording: `service_policy_subject=operator_scoped_deployment`, `quota_scope=deployment_global`, `authorization_model=deployment_policy_plus_resource_capability`, `authorization_header=reserved_undefined`, `resource_ref_model=resource_refs_not_principals`, and `transfer_model=many_transfers_subject_to_deployment_policy_quota`.
 
 ## 5. Option set
 

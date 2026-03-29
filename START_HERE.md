@@ -27,3 +27,4 @@ It must not implement plaintext attachment handling or secret-bearing canonical 
 It must treat constrained hosts and weak relays as first-class validation inputs during operational hardening.
 It now also carries the stronger reference-host install path, the `NA-0201` mixed validation evidence, and the bounded kitchen-sink stress/soak/chaos evidence for `NA-0201A`.
 Its current service auth boundary is operator-scoped deployment policy plus per-session/object capability authorization, not a multi-tenant end-user identity model.
+The runtime now makes that explicit through an operator policy surface/startup summary: the deployment is the sole policy subject, quotas are deployment-global, resource refs are not principals, many transfers are allowed when deployment policy/quota allows them, and each `resume_token` / `fetch_capability` remains scoped to one session/object.
