@@ -122,3 +122,22 @@
     - hold the repo in an operator-scoped continued-support posture without freezing the contract (rejected: the evidence is already sufficient to freeze the boundary and move to explicit implementation)
     - define a multi-tenant or peer-identity service auth layer now (rejected: not supported by current evidence and would invent new semantics)
   - **References:** `README.md`; `START_HERE.md`; `TRACEABILITY.md`; `docs/NA-0007_authn_authz_policy_subject_contract.md`; `tests/NA-0003_constrained_host_validation_evidence.md`; `tests/NA-0004_reference_deployment_validation_evidence.md`; `tests/NA-0005_stress_soak_chaos_evidence.md`; `src/lib.rs`; `tests/service_contract.rs`; qsl-protocol `docs/canonical/DOC-CAN-006_QATT_Attachment_Service_Contract_v0.1.0_DRAFT.md`; qsl-protocol `docs/design/DOC-G5-004_Metadata_Leakage_Surface_Review_and_Logging_Contract_v0.1.0_DRAFT.md`
+
+
+- **ID:** D-0008
+  - **Status:** Accepted
+  - **Date:** 2026-03-29
+  - **Goals:** G4, G5
+  - **Decision:** `NA-0008` implements the frozen operator-scoped authn/authz / policy-subject contract by making the deployment subject explicit on operator-safe runtime surfaces instead of adding a new service auth layer. `Config::operator_policy_surface()` and the startup summary now state that the sole current service policy subject is the operator-scoped deployment, quotas are deployment-global, `Authorization` remains reserved/undefined, resource refs are not principals, and many transfers remain allowed when deployment policy/quota allows them even though each `resume_token` / `fetch_capability` remains scoped to one session/object.
+  - **Invariants:**
+    - no plaintext attachment handling on service surfaces
+    - no capability-like secrets in canonical URLs
+    - qsl-attachments remains opaque ciphertext-only
+    - qsl-server remains separate and transport-only
+    - no per-user, per-peer, per-device, or attachment-owner service identity is introduced
+    - resource-scoped capabilities remain exact-match authorizers for one session/object only
+  - **Alternatives Considered:**
+    - add a repo-local `Authorization` layer in this item (rejected: not required to implement the frozen contract faithfully and would widen the validated deployment surface)
+    - keep the operator-scoped deployment subject implicit in runtime/operator surfaces (rejected: leaves the direct implementation lane unfinished and does not provide deterministic proof of the frozen wording)
+    - reinterpret resource refs or capabilities as service principals (rejected: dishonest to the frozen contract and would invent new semantics)
+  - **References:** `README.md`; `START_HERE.md`; `docs/NA-0007_authn_authz_policy_subject_contract.md`; `src/lib.rs`; `src/main.rs`; `tests/service_contract.rs`; qsl-protocol `docs/canonical/DOC-CAN-006_QATT_Attachment_Service_Contract_v0.1.0_DRAFT.md`; qsl-protocol `DECISIONS.md`

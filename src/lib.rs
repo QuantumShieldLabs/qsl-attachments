@@ -45,6 +45,21 @@ pub struct Config {
     pub invalid_range_attempt_limit: u32,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct OperatorPolicySurface {
+    pub service_policy_subject: &'static str,
+    pub authorization_model: &'static str,
+    pub authorization_header: &'static str,
+    pub quota_scope: &'static str,
+    pub resume_token_scope: &'static str,
+    pub fetch_capability_scope: &'static str,
+    pub resource_ref_model: &'static str,
+    pub principal_model: &'static str,
+    pub transfer_model: &'static str,
+    pub max_open_sessions: usize,
+    pub max_ciphertext_bytes: u64,
+}
+
 impl Default for Config {
     fn default() -> Self {
         Self {
@@ -99,6 +114,22 @@ impl Config {
             &mut cfg.invalid_range_attempt_limit,
         )?;
         Ok(cfg)
+    }
+
+    pub fn operator_policy_surface(&self) -> OperatorPolicySurface {
+        OperatorPolicySurface {
+            service_policy_subject: "operator_scoped_deployment",
+            authorization_model: "deployment_policy_plus_resource_capability",
+            authorization_header: "reserved_undefined",
+            quota_scope: "deployment_global",
+            resume_token_scope: "single_session",
+            fetch_capability_scope: "single_object",
+            resource_ref_model: "resource_refs_not_principals",
+            principal_model: "no_end_user_service_principal",
+            transfer_model: "many_transfers_subject_to_deployment_policy_quota",
+            max_open_sessions: self.max_open_sessions,
+            max_ciphertext_bytes: self.max_ciphertext_bytes,
+        }
     }
 
     fn retention_ttl_secs(&self, retention_class: RetentionClass) -> u64 {
@@ -332,6 +363,10 @@ impl AppState {
 
     pub fn config(&self) -> &Config {
         &self.inner.config
+    }
+
+    pub fn operator_policy_surface(&self) -> OperatorPolicySurface {
+        self.inner.config.operator_policy_surface()
     }
 
     fn ensure_disk_headroom(

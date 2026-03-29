@@ -21,10 +21,8 @@ struct Fixture {
 }
 
 impl Fixture {
-    fn new() -> Self {
-        let tempdir = TempDir::new().expect("tempdir");
-        let config = Config {
-            storage_root: tempdir.path().join("data"),
+    fn base_config() -> Config {
+        Config {
             max_ciphertext_bytes: 101 * 1024 * 1024,
             max_open_sessions: 1,
             storage_reserve_bytes: 1024,
@@ -35,7 +33,16 @@ impl Fixture {
             invalid_secret_attempt_limit: 2,
             invalid_range_attempt_limit: 2,
             ..Config::default()
-        };
+        }
+    }
+
+    fn new() -> Self {
+        Self::with_config(Self::base_config())
+    }
+
+    fn with_config(mut config: Config) -> Self {
+        let tempdir = TempDir::new().expect("tempdir");
+        config.storage_root = tempdir.path().join("data");
         let clock = TestClock::new(1_700_000_000);
         let disk = TestDiskSpace::new(u64::MAX / 4);
         let state =
@@ -146,6 +153,35 @@ fn one_part_payload(
         retention_class,
     };
     (parts, request)
+}
+
+#[tokio::test]
+async fn operator_policy_surface_is_explicit_and_truthful() {
+    let fixture = Fixture::new();
+    let surface = fixture.state.operator_policy_surface();
+    assert_eq!(surface.service_policy_subject, "operator_scoped_deployment");
+    assert_eq!(
+        surface.authorization_model,
+        "deployment_policy_plus_resource_capability"
+    );
+    assert_eq!(surface.authorization_header, "reserved_undefined");
+    assert_eq!(surface.quota_scope, "deployment_global");
+    assert_eq!(surface.resume_token_scope, "single_session");
+    assert_eq!(surface.fetch_capability_scope, "single_object");
+    assert_eq!(surface.resource_ref_model, "resource_refs_not_principals");
+    assert_eq!(surface.principal_model, "no_end_user_service_principal");
+    assert_eq!(
+        surface.transfer_model,
+        "many_transfers_subject_to_deployment_policy_quota"
+    );
+    assert_eq!(
+        surface.max_open_sessions,
+        fixture.state.config().max_open_sessions
+    );
+    assert_eq!(
+        surface.max_ciphertext_bytes,
+        fixture.state.config().max_ciphertext_bytes
+    );
 }
 
 #[tokio::test]
@@ -638,6 +674,119 @@ async fn quota_limit_rejects() {
 }
 
 #[tokio::test]
+async fn deployment_global_open_session_quota_is_shared_across_attachments() {
+    let fixture = Fixture::new();
+    let (_parts_a, request_a) = one_part_payload(50, b"quota-a", RetentionClass::Standard);
+    let create_a = fixture
+        .json_request(
+            Method::POST,
+            "/v1/attachments/sessions",
+            &[],
+            serde_json::to_value(request_a).unwrap(),
+        )
+        .await;
+    assert_eq!(create_a.status(), StatusCode::CREATED);
+
+    let (_parts_b, request_b) = one_part_payload(51, b"quota-b", RetentionClass::Standard);
+    let create_b = fixture
+        .json_request(
+            Method::POST,
+            "/v1/attachments/sessions",
+            &[],
+            serde_json::to_value(request_b).unwrap(),
+        )
+        .await;
+    assert_eq!(create_b.status(), StatusCode::PAYLOAD_TOO_LARGE);
+    let body: serde_json::Value = read_json(create_b).await;
+    assert_eq!(body["reason_code"], "REJECT_QATTSVC_QUOTA");
+}
+
+#[tokio::test]
+async fn deployment_policy_allows_many_transfers_when_quota_allows_them() {
+    let mut config = Fixture::base_config();
+    config.max_open_sessions = 2;
+    let fixture = Fixture::with_config(config);
+    let (parts_a, request_a) = one_part_payload(52, b"alpha-transfer", RetentionClass::Standard);
+    let create_a = fixture
+        .json_request(
+            Method::POST,
+            "/v1/attachments/sessions",
+            &[],
+            serde_json::to_value(request_a.clone()).unwrap(),
+        )
+        .await;
+    let create_a_body: serde_json::Value = read_json(create_a).await;
+    let session_id_a = create_a_body["session_id"].as_str().unwrap();
+    let resume_token_a = create_a_body["resume_token"].as_str().unwrap();
+
+    let (parts_b, request_b) = one_part_payload(53, b"bravo-transfer", RetentionClass::Standard);
+    let create_b = fixture
+        .json_request(
+            Method::POST,
+            "/v1/attachments/sessions",
+            &[],
+            serde_json::to_value(request_b.clone()).unwrap(),
+        )
+        .await;
+    let create_b_body: serde_json::Value = read_json(create_b).await;
+    let session_id_b = create_b_body["session_id"].as_str().unwrap();
+    let resume_token_b = create_b_body["resume_token"].as_str().unwrap();
+
+    fixture
+        .bytes_request(
+            Method::PUT,
+            &format!("/v1/attachments/sessions/{session_id_a}/parts/0"),
+            &[("X-QATT-Resume-Token", resume_token_a)],
+            parts_a[0].clone(),
+        )
+        .await;
+    fixture
+        .bytes_request(
+            Method::PUT,
+            &format!("/v1/attachments/sessions/{session_id_b}/parts/0"),
+            &[("X-QATT-Resume-Token", resume_token_b)],
+            parts_b[0].clone(),
+        )
+        .await;
+
+    let commit_a = fixture
+        .json_request(
+            Method::POST,
+            &format!("/v1/attachments/sessions/{session_id_a}/commit"),
+            &[("X-QATT-Resume-Token", resume_token_a)],
+            serde_json::to_value(CommitRequest {
+                attachment_id: request_a.attachment_id,
+                ciphertext_len: request_a.ciphertext_len,
+                part_count: request_a.part_count,
+                integrity_alg: request_a.integrity_alg,
+                integrity_root: request_a.integrity_root,
+                retention_class: request_a.retention_class,
+            })
+            .unwrap(),
+        )
+        .await;
+    assert_eq!(commit_a.status(), StatusCode::OK);
+
+    let commit_b = fixture
+        .json_request(
+            Method::POST,
+            &format!("/v1/attachments/sessions/{session_id_b}/commit"),
+            &[("X-QATT-Resume-Token", resume_token_b)],
+            serde_json::to_value(CommitRequest {
+                attachment_id: request_b.attachment_id,
+                ciphertext_len: request_b.ciphertext_len,
+                part_count: request_b.part_count,
+                integrity_alg: request_b.integrity_alg,
+                integrity_root: request_b.integrity_root,
+                retention_class: request_b.retention_class,
+            })
+            .unwrap(),
+        )
+        .await;
+    assert_eq!(commit_b.status(), StatusCode::OK);
+}
+
+#[tokio::test]
 async fn hundred_mib_target_class_create_session_succeeds() {
     let fixture = Fixture::new();
     let plaintext_len = 100_u64 * 1024 * 1024;
@@ -982,4 +1131,165 @@ async fn canonical_urls_reject_query_string_secret_carriage() {
     assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     let body: serde_json::Value = read_json(response).await;
     assert_eq!(body["reason_code"], "REJECT_QATTSVC_SECRET_URL_PLACEMENT");
+}
+
+#[tokio::test]
+async fn resume_token_is_scoped_to_one_session() {
+    let mut config = Fixture::base_config();
+    config.max_open_sessions = 2;
+    let fixture = Fixture::with_config(config);
+    let (_parts_a, request_a) = one_part_payload(60, b"session-a", RetentionClass::Standard);
+    let create_a = fixture
+        .json_request(
+            Method::POST,
+            "/v1/attachments/sessions",
+            &[],
+            serde_json::to_value(request_a).unwrap(),
+        )
+        .await;
+    let create_a_body: serde_json::Value = read_json(create_a).await;
+    let resume_token_a = create_a_body["resume_token"].as_str().unwrap();
+
+    let (_parts_b, request_b) = one_part_payload(61, b"session-b", RetentionClass::Standard);
+    let create_b = fixture
+        .json_request(
+            Method::POST,
+            "/v1/attachments/sessions",
+            &[],
+            serde_json::to_value(request_b).unwrap(),
+        )
+        .await;
+    let create_b_body: serde_json::Value = read_json(create_b).await;
+    let session_id_b = create_b_body["session_id"].as_str().unwrap();
+    let resume_token_b = create_b_body["resume_token"].as_str().unwrap();
+
+    let wrong_status = fixture
+        .bytes_request(
+            Method::GET,
+            &format!("/v1/attachments/sessions/{session_id_b}"),
+            &[("X-QATT-Resume-Token", resume_token_a)],
+            Vec::new(),
+        )
+        .await;
+    assert_eq!(wrong_status.status(), StatusCode::FORBIDDEN);
+    let wrong_body: serde_json::Value = read_json(wrong_status).await;
+    assert_eq!(wrong_body["reason_code"], "REJECT_QATTSVC_RESUME_TOKEN");
+
+    let good_status = fixture
+        .bytes_request(
+            Method::GET,
+            &format!("/v1/attachments/sessions/{session_id_b}"),
+            &[("X-QATT-Resume-Token", resume_token_b)],
+            Vec::new(),
+        )
+        .await;
+    assert_eq!(good_status.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn fetch_capability_is_scoped_to_one_object() {
+    let mut config = Fixture::base_config();
+    config.max_open_sessions = 2;
+    let fixture = Fixture::with_config(config);
+    let (parts_a, request_a) = one_part_payload(62, b"object-a", RetentionClass::Standard);
+    let create_a = fixture
+        .json_request(
+            Method::POST,
+            "/v1/attachments/sessions",
+            &[],
+            serde_json::to_value(request_a.clone()).unwrap(),
+        )
+        .await;
+    let create_a_body: serde_json::Value = read_json(create_a).await;
+    let session_id_a = create_a_body["session_id"].as_str().unwrap();
+    let resume_token_a = create_a_body["resume_token"].as_str().unwrap();
+    fixture
+        .bytes_request(
+            Method::PUT,
+            &format!("/v1/attachments/sessions/{session_id_a}/parts/0"),
+            &[("X-QATT-Resume-Token", resume_token_a)],
+            parts_a[0].clone(),
+        )
+        .await;
+    let commit_a = fixture
+        .json_request(
+            Method::POST,
+            &format!("/v1/attachments/sessions/{session_id_a}/commit"),
+            &[("X-QATT-Resume-Token", resume_token_a)],
+            serde_json::to_value(CommitRequest {
+                attachment_id: request_a.attachment_id,
+                ciphertext_len: request_a.ciphertext_len,
+                part_count: request_a.part_count,
+                integrity_alg: request_a.integrity_alg,
+                integrity_root: request_a.integrity_root,
+                retention_class: request_a.retention_class,
+            })
+            .unwrap(),
+        )
+        .await;
+    let commit_a_body: serde_json::Value = read_json(commit_a).await;
+    let fetch_capability_a = commit_a_body["fetch_capability"].as_str().unwrap();
+
+    let (parts_b, request_b) = one_part_payload(63, b"object-b", RetentionClass::Standard);
+    let create_b = fixture
+        .json_request(
+            Method::POST,
+            "/v1/attachments/sessions",
+            &[],
+            serde_json::to_value(request_b.clone()).unwrap(),
+        )
+        .await;
+    let create_b_body: serde_json::Value = read_json(create_b).await;
+    let session_id_b = create_b_body["session_id"].as_str().unwrap();
+    let resume_token_b = create_b_body["resume_token"].as_str().unwrap();
+    fixture
+        .bytes_request(
+            Method::PUT,
+            &format!("/v1/attachments/sessions/{session_id_b}/parts/0"),
+            &[("X-QATT-Resume-Token", resume_token_b)],
+            parts_b[0].clone(),
+        )
+        .await;
+    let commit_b = fixture
+        .json_request(
+            Method::POST,
+            &format!("/v1/attachments/sessions/{session_id_b}/commit"),
+            &[("X-QATT-Resume-Token", resume_token_b)],
+            serde_json::to_value(CommitRequest {
+                attachment_id: request_b.attachment_id,
+                ciphertext_len: request_b.ciphertext_len,
+                part_count: request_b.part_count,
+                integrity_alg: request_b.integrity_alg,
+                integrity_root: request_b.integrity_root,
+                retention_class: request_b.retention_class,
+            })
+            .unwrap(),
+        )
+        .await;
+    let commit_b_body: serde_json::Value = read_json(commit_b).await;
+    let locator_ref_b = commit_b_body["locator_ref"].as_str().unwrap();
+    let fetch_capability_b = commit_b_body["fetch_capability"].as_str().unwrap();
+
+    let wrong_fetch = fixture
+        .bytes_request(
+            Method::GET,
+            &format!("/v1/attachments/objects/{locator_ref_b}"),
+            &[("X-QATT-Fetch-Capability", fetch_capability_a)],
+            Vec::new(),
+        )
+        .await;
+    assert_eq!(wrong_fetch.status(), StatusCode::FORBIDDEN);
+    let wrong_body: serde_json::Value = read_json(wrong_fetch).await;
+    assert_eq!(wrong_body["reason_code"], "REJECT_QATTSVC_FETCH_CAPABILITY");
+
+    let good_fetch = fixture
+        .bytes_request(
+            Method::GET,
+            &format!("/v1/attachments/objects/{locator_ref_b}"),
+            &[("X-QATT-Fetch-Capability", fetch_capability_b)],
+            Vec::new(),
+        )
+        .await;
+    assert_eq!(good_fetch.status(), StatusCode::OK);
+    assert_eq!(read_bytes(good_fetch).await, b"object-b".to_vec());
 }
