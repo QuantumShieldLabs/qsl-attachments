@@ -4,16 +4,17 @@ Read in this order:
 1. `README.md`
 2. `NEXT_ACTIONS.md`
 3. `docs/NA-0007_authn_authz_policy_subject_contract.md`
-4. `docs/NA-0002_operational_hardening_contract.md`
-5. `tests/NA-0003_constrained_host_validation_evidence.md`
-6. `docs/NA-0004_reference_deployment_runbook.md`
-7. `tests/NA-0004_reference_deployment_validation_evidence.md`
-8. `tests/NA-0005_stress_soak_chaos_evidence.md`
-9. qsl-protocol canonical docs:
+4. `docs/NA-0009_durability_recovery_contract.md`
+5. `docs/NA-0002_operational_hardening_contract.md`
+6. `tests/NA-0003_constrained_host_validation_evidence.md`
+7. `docs/NA-0004_reference_deployment_runbook.md`
+8. `tests/NA-0004_reference_deployment_validation_evidence.md`
+9. `tests/NA-0005_stress_soak_chaos_evidence.md`
+10. qsl-protocol canonical docs:
    - `DOC-CAN-005 — QSP Attachment Descriptor + Control-Plane Contract`
    - `DOC-CAN-006 — QATT Attachment Service Contract`
    - `DOC-CAN-007 — QATT Attachment Encryption Context and Part Cipher`
-10. qsl-protocol design docs:
+11. qsl-protocol design docs:
    - `DOC-ATT-002 — qsl-attachments Deployment and Operational Hardening Contract`
 
 Canonical docs:
@@ -28,3 +29,4 @@ It must treat constrained hosts and weak relays as first-class validation inputs
 It now also carries the stronger reference-host install path, the `NA-0201` mixed validation evidence, and the bounded kitchen-sink stress/soak/chaos evidence for `NA-0201A`.
 Its current service auth boundary is operator-scoped deployment policy plus per-session/object capability authorization, not a multi-tenant end-user identity model.
 The runtime now makes that explicit through an operator policy surface/startup summary: the deployment is the sole policy subject, quotas are deployment-global, resource refs are not principals, many transfers are allowed when deployment policy/quota allows them, and each `resume_token` / `fetch_capability` remains scoped to one session/object.
+Its current durability boundary is the same single local storage root: graceful same-root restart is in scope, cold whole-root backup/restore is the only supported backup shape, and abrupt-crash/open-session recovery remains fail-closed with bounded operator cleanup rather than cross-file transactional durability.
