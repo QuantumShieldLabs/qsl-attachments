@@ -33,6 +33,23 @@ async fn main() {
     );
     let bind_addr = config.bind_addr;
     let state = AppState::new(config, Arc::new(SystemClock)).expect("initialize state");
+    let recovery = state.recovery_summary();
+    info!(
+        durability_boundary = "single_node_local_storage_root",
+        graceful_restart_scope = "same_root_only",
+        committed_object_recovery = "object_json_plus_ciphertext_bin",
+        supported_backup_shape = "cold_full_root_plus_matching_config",
+        unsupported_cases =
+            "abrupt_crash_open_session,hot_live_backup,partial_restore,cross_file_transaction",
+        resumable_sessions = recovery.resumable_sessions,
+        discarded_incoherent_sessions = recovery.discarded_incoherent_sessions,
+        discarded_orphan_session_dirs = recovery.discarded_orphan_session_dirs,
+        discarded_orphan_part_files = recovery.discarded_orphan_part_files,
+        recovered_committed_objects = recovery.recovered_committed_objects,
+        discarded_incoherent_objects = recovery.discarded_incoherent_objects,
+        discarded_orphan_object_dirs = recovery.discarded_orphan_object_dirs,
+        "qatt startup durability recovery"
+    );
     let app = build_router(state);
     let listener = TcpListener::bind(bind_addr).await.expect("bind listener");
     axum::serve(listener, app).await.expect("serve application");

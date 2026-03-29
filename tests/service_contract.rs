@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{fs, path::PathBuf, sync::Arc};
 
 use axum::body::Body;
 use axum::http::header::{CONTENT_LENGTH, CONTENT_RANGE, RANGE};
@@ -16,6 +16,8 @@ struct Fixture {
     _tempdir: TempDir,
     app: axum::Router,
     state: AppState,
+    config: Config,
+    storage_root: PathBuf,
     clock: TestClock,
     disk: TestDiskSpace,
 }
@@ -43,19 +45,36 @@ impl Fixture {
     fn with_config(mut config: Config) -> Self {
         let tempdir = TempDir::new().expect("tempdir");
         config.storage_root = tempdir.path().join("data");
+        let storage_root = config.storage_root.clone();
         let clock = TestClock::new(1_700_000_000);
         let disk = TestDiskSpace::new(u64::MAX / 4);
-        let state =
-            AppState::new_with_disk_space(config, Arc::new(clock.clone()), Arc::new(disk.clone()))
-                .expect("state");
+        let state = AppState::new_with_disk_space(
+            config.clone(),
+            Arc::new(clock.clone()),
+            Arc::new(disk.clone()),
+        )
+        .expect("state");
         let app = build_router(state.clone());
         Self {
             _tempdir: tempdir,
             app,
             state,
+            config,
+            storage_root,
             clock,
             disk,
         }
+    }
+
+    fn restart(&self) -> (axum::Router, AppState) {
+        let state = AppState::new_with_disk_space(
+            self.config.clone(),
+            Arc::new(self.clock.clone()),
+            Arc::new(self.disk.clone()),
+        )
+        .expect("restarted state");
+        let app = build_router(state.clone());
+        (app, state)
     }
 
     async fn json_request(
@@ -95,6 +114,42 @@ impl Fixture {
             .await
             .expect("response")
     }
+}
+
+async fn json_request_on(
+    app: &axum::Router,
+    method: Method,
+    uri: &str,
+    headers: &[(&str, &str)],
+    body: serde_json::Value,
+) -> axum::response::Response {
+    let mut builder = Request::builder().method(method).uri(uri);
+    for (name, value) in headers {
+        builder = builder.header(*name, *value);
+    }
+    builder = builder.header("content-type", "application/json");
+    app.clone()
+        .oneshot(builder.body(Body::from(body.to_string())).expect("request"))
+        .await
+        .expect("response")
+}
+
+async fn bytes_request_on(
+    app: &axum::Router,
+    method: Method,
+    uri: &str,
+    headers: &[(&str, &str)],
+    body: Vec<u8>,
+) -> axum::response::Response {
+    let mut builder = Request::builder().method(method).uri(uri);
+    for (name, value) in headers {
+        builder = builder.header(*name, *value);
+    }
+    builder = builder.header(CONTENT_LENGTH, body.len().to_string());
+    app.clone()
+        .oneshot(builder.body(Body::from(body)).expect("request"))
+        .await
+        .expect("response")
 }
 
 async fn read_json<T: serde::de::DeserializeOwned>(response: axum::response::Response) -> T {
@@ -1292,4 +1347,365 @@ async fn fetch_capability_is_scoped_to_one_object() {
         .await;
     assert_eq!(good_fetch.status(), StatusCode::OK);
     assert_eq!(read_bytes(good_fetch).await, b"object-b".to_vec());
+}
+
+#[tokio::test]
+async fn graceful_same_root_restart_recovers_coherent_session_and_discards_orphan_parts() {
+    let fixture = Fixture::new();
+    let (parts, request) = two_part_payload();
+    let create = fixture
+        .json_request(
+            Method::POST,
+            "/v1/attachments/sessions",
+            &[],
+            serde_json::to_value(request.clone()).unwrap(),
+        )
+        .await;
+    let create_body: serde_json::Value = read_json(create).await;
+    let session_id = create_body["session_id"].as_str().unwrap().to_owned();
+    let resume_token = create_body["resume_token"].as_str().unwrap().to_owned();
+
+    fixture
+        .bytes_request(
+            Method::PUT,
+            &format!("/v1/attachments/sessions/{session_id}/parts/0"),
+            &[("X-QATT-Resume-Token", &resume_token)],
+            parts[0].clone(),
+        )
+        .await;
+
+    let orphan_path = fixture
+        .storage_root
+        .join("sessions")
+        .join(&session_id)
+        .join("parts")
+        .join("1.part");
+    fs::write(&orphan_path, b"orphaned-staged-bytes").unwrap();
+
+    let (restarted_app, restarted_state) = fixture.restart();
+    let recovery = restarted_state.recovery_summary();
+    assert_eq!(recovery.resumable_sessions, 1);
+    assert_eq!(recovery.discarded_orphan_part_files, 1);
+    assert!(!orphan_path.exists());
+
+    let status = bytes_request_on(
+        &restarted_app,
+        Method::GET,
+        &format!("/v1/attachments/sessions/{session_id}"),
+        &[("X-QATT-Resume-Token", &resume_token)],
+        Vec::new(),
+    )
+    .await;
+    assert_eq!(status.status(), StatusCode::OK);
+    let status_body: SessionStatusResponse = read_json(status).await;
+    assert_eq!(
+        status_body.session_state,
+        qsl_attachments::SessionState::Uploading
+    );
+    assert_eq!(status_body.stored_part_count, 1);
+    assert_eq!(
+        status_body.missing_part_ranges,
+        vec![MissingRange { start: 1, end: 1 }]
+    );
+
+    let upload = bytes_request_on(
+        &restarted_app,
+        Method::PUT,
+        &format!("/v1/attachments/sessions/{session_id}/parts/1"),
+        &[("X-QATT-Resume-Token", &resume_token)],
+        parts[1].clone(),
+    )
+    .await;
+    assert_eq!(upload.status(), StatusCode::OK);
+
+    let commit = json_request_on(
+        &restarted_app,
+        Method::POST,
+        &format!("/v1/attachments/sessions/{session_id}/commit"),
+        &[("X-QATT-Resume-Token", &resume_token)],
+        serde_json::to_value(CommitRequest {
+            attachment_id: request.attachment_id,
+            ciphertext_len: request.ciphertext_len,
+            part_count: request.part_count,
+            integrity_alg: request.integrity_alg,
+            integrity_root: request.integrity_root,
+            retention_class: request.retention_class,
+        })
+        .unwrap(),
+    )
+    .await;
+    assert_eq!(commit.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn restart_discards_incoherent_session_when_journaled_part_is_missing() {
+    let fixture = Fixture::new();
+    let (parts, request) = one_part_payload(70, b"resume-me", RetentionClass::Standard);
+    let create = fixture
+        .json_request(
+            Method::POST,
+            "/v1/attachments/sessions",
+            &[],
+            serde_json::to_value(request).unwrap(),
+        )
+        .await;
+    let create_body: serde_json::Value = read_json(create).await;
+    let session_id = create_body["session_id"].as_str().unwrap().to_owned();
+    let resume_token = create_body["resume_token"].as_str().unwrap().to_owned();
+
+    fixture
+        .bytes_request(
+            Method::PUT,
+            &format!("/v1/attachments/sessions/{session_id}/parts/0"),
+            &[("X-QATT-Resume-Token", &resume_token)],
+            parts[0].clone(),
+        )
+        .await;
+
+    let staged_part = fixture
+        .storage_root
+        .join("sessions")
+        .join(&session_id)
+        .join("parts")
+        .join("0.part");
+    fs::remove_file(&staged_part).unwrap();
+
+    let (restarted_app, restarted_state) = fixture.restart();
+    let recovery = restarted_state.recovery_summary();
+    assert_eq!(recovery.discarded_incoherent_sessions, 1);
+
+    let status = bytes_request_on(
+        &restarted_app,
+        Method::GET,
+        &format!("/v1/attachments/sessions/{session_id}"),
+        &[("X-QATT-Resume-Token", &resume_token)],
+        Vec::new(),
+    )
+    .await;
+    assert_eq!(status.status(), StatusCode::CONFLICT);
+    let status_body: serde_json::Value = read_json(status).await;
+    assert_eq!(status_body["reason_code"], "REJECT_QATTSVC_SESSION_STATE");
+}
+
+#[tokio::test]
+async fn committed_object_recovery_requires_object_json_and_ciphertext_bin() {
+    let fixture = Fixture::new();
+
+    let (keep_parts, keep_request) = one_part_payload(71, b"keep-object", RetentionClass::Standard);
+    let keep_create = fixture
+        .json_request(
+            Method::POST,
+            "/v1/attachments/sessions",
+            &[],
+            serde_json::to_value(keep_request.clone()).unwrap(),
+        )
+        .await;
+    let keep_create_body: serde_json::Value = read_json(keep_create).await;
+    let keep_session_id = keep_create_body["session_id"].as_str().unwrap();
+    let keep_resume_token = keep_create_body["resume_token"].as_str().unwrap();
+    fixture
+        .bytes_request(
+            Method::PUT,
+            &format!("/v1/attachments/sessions/{keep_session_id}/parts/0"),
+            &[("X-QATT-Resume-Token", keep_resume_token)],
+            keep_parts[0].clone(),
+        )
+        .await;
+    let keep_commit = fixture
+        .json_request(
+            Method::POST,
+            &format!("/v1/attachments/sessions/{keep_session_id}/commit"),
+            &[("X-QATT-Resume-Token", keep_resume_token)],
+            serde_json::to_value(CommitRequest {
+                attachment_id: keep_request.attachment_id,
+                ciphertext_len: keep_request.ciphertext_len,
+                part_count: keep_request.part_count,
+                integrity_alg: keep_request.integrity_alg,
+                integrity_root: keep_request.integrity_root,
+                retention_class: keep_request.retention_class,
+            })
+            .unwrap(),
+        )
+        .await;
+    let keep_commit_body: serde_json::Value = read_json(keep_commit).await;
+    let keep_locator = keep_commit_body["locator_ref"].as_str().unwrap().to_owned();
+    let keep_fetch_capability = keep_commit_body["fetch_capability"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+
+    let (drop_bytes_parts, drop_bytes_request) =
+        one_part_payload(72, b"missing-bytes", RetentionClass::Standard);
+    let drop_bytes_create = fixture
+        .json_request(
+            Method::POST,
+            "/v1/attachments/sessions",
+            &[],
+            serde_json::to_value(drop_bytes_request.clone()).unwrap(),
+        )
+        .await;
+    let drop_bytes_create_body: serde_json::Value = read_json(drop_bytes_create).await;
+    let drop_bytes_session_id = drop_bytes_create_body["session_id"].as_str().unwrap();
+    let drop_bytes_resume_token = drop_bytes_create_body["resume_token"].as_str().unwrap();
+    fixture
+        .bytes_request(
+            Method::PUT,
+            &format!("/v1/attachments/sessions/{drop_bytes_session_id}/parts/0"),
+            &[("X-QATT-Resume-Token", drop_bytes_resume_token)],
+            drop_bytes_parts[0].clone(),
+        )
+        .await;
+    let drop_bytes_commit = fixture
+        .json_request(
+            Method::POST,
+            &format!("/v1/attachments/sessions/{drop_bytes_session_id}/commit"),
+            &[("X-QATT-Resume-Token", drop_bytes_resume_token)],
+            serde_json::to_value(CommitRequest {
+                attachment_id: drop_bytes_request.attachment_id,
+                ciphertext_len: drop_bytes_request.ciphertext_len,
+                part_count: drop_bytes_request.part_count,
+                integrity_alg: drop_bytes_request.integrity_alg,
+                integrity_root: drop_bytes_request.integrity_root,
+                retention_class: drop_bytes_request.retention_class,
+            })
+            .unwrap(),
+        )
+        .await;
+    let drop_bytes_commit_body: serde_json::Value = read_json(drop_bytes_commit).await;
+    let drop_bytes_locator = drop_bytes_commit_body["locator_ref"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let drop_bytes_fetch_capability = drop_bytes_commit_body["fetch_capability"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+
+    let (drop_meta_parts, drop_meta_request) =
+        one_part_payload(73, b"missing-meta", RetentionClass::Standard);
+    let drop_meta_create = fixture
+        .json_request(
+            Method::POST,
+            "/v1/attachments/sessions",
+            &[],
+            serde_json::to_value(drop_meta_request.clone()).unwrap(),
+        )
+        .await;
+    let drop_meta_create_body: serde_json::Value = read_json(drop_meta_create).await;
+    let drop_meta_session_id = drop_meta_create_body["session_id"].as_str().unwrap();
+    let drop_meta_resume_token = drop_meta_create_body["resume_token"].as_str().unwrap();
+    fixture
+        .bytes_request(
+            Method::PUT,
+            &format!("/v1/attachments/sessions/{drop_meta_session_id}/parts/0"),
+            &[("X-QATT-Resume-Token", drop_meta_resume_token)],
+            drop_meta_parts[0].clone(),
+        )
+        .await;
+    let drop_meta_commit = fixture
+        .json_request(
+            Method::POST,
+            &format!("/v1/attachments/sessions/{drop_meta_session_id}/commit"),
+            &[("X-QATT-Resume-Token", drop_meta_resume_token)],
+            serde_json::to_value(CommitRequest {
+                attachment_id: drop_meta_request.attachment_id,
+                ciphertext_len: drop_meta_request.ciphertext_len,
+                part_count: drop_meta_request.part_count,
+                integrity_alg: drop_meta_request.integrity_alg,
+                integrity_root: drop_meta_request.integrity_root,
+                retention_class: drop_meta_request.retention_class,
+            })
+            .unwrap(),
+        )
+        .await;
+    let drop_meta_commit_body: serde_json::Value = read_json(drop_meta_commit).await;
+    let drop_meta_locator = drop_meta_commit_body["locator_ref"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let drop_meta_fetch_capability = drop_meta_commit_body["fetch_capability"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+
+    fs::remove_file(
+        fixture
+            .storage_root
+            .join("objects")
+            .join(&drop_bytes_locator)
+            .join("ciphertext.bin"),
+    )
+    .unwrap();
+    fs::remove_file(
+        fixture
+            .storage_root
+            .join("objects")
+            .join(&drop_meta_locator)
+            .join("object.json"),
+    )
+    .unwrap();
+
+    let (restarted_app, restarted_state) = fixture.restart();
+    let recovery = restarted_state.recovery_summary();
+    assert_eq!(recovery.recovered_committed_objects, 1);
+    assert_eq!(recovery.discarded_incoherent_objects, 1);
+    assert_eq!(recovery.discarded_orphan_object_dirs, 1);
+
+    let keep_fetch = bytes_request_on(
+        &restarted_app,
+        Method::GET,
+        &format!("/v1/attachments/objects/{keep_locator}"),
+        &[("X-QATT-Fetch-Capability", &keep_fetch_capability)],
+        Vec::new(),
+    )
+    .await;
+    assert_eq!(keep_fetch.status(), StatusCode::OK);
+    assert_eq!(read_bytes(keep_fetch).await, b"keep-object".to_vec());
+
+    let drop_bytes_fetch = bytes_request_on(
+        &restarted_app,
+        Method::GET,
+        &format!("/v1/attachments/objects/{drop_bytes_locator}"),
+        &[("X-QATT-Fetch-Capability", &drop_bytes_fetch_capability)],
+        Vec::new(),
+    )
+    .await;
+    assert_eq!(drop_bytes_fetch.status(), StatusCode::NOT_FOUND);
+    let drop_bytes_body: serde_json::Value = read_json(drop_bytes_fetch).await;
+    assert_eq!(
+        drop_bytes_body["reason_code"],
+        "REJECT_QATTSVC_LOCATOR_UNKNOWN"
+    );
+
+    let drop_meta_fetch = bytes_request_on(
+        &restarted_app,
+        Method::GET,
+        &format!("/v1/attachments/objects/{drop_meta_locator}"),
+        &[("X-QATT-Fetch-Capability", &drop_meta_fetch_capability)],
+        Vec::new(),
+    )
+    .await;
+    assert_eq!(drop_meta_fetch.status(), StatusCode::NOT_FOUND);
+    let drop_meta_body: serde_json::Value = read_json(drop_meta_fetch).await;
+    assert_eq!(
+        drop_meta_body["reason_code"],
+        "REJECT_QATTSVC_LOCATOR_UNKNOWN"
+    );
+}
+
+#[test]
+fn durability_docs_state_restart_and_backup_boundary_truthfully() {
+    let readme = include_str!("../README.md");
+    let start_here = include_str!("../START_HERE.md");
+    let contract = include_str!("../docs/NA-0009_durability_recovery_contract.md");
+
+    assert!(readme.contains("graceful same-root restart is in scope"));
+    assert!(readme.contains("cold full-root backup/restore plus matching service configuration"));
+    assert!(start_here.contains("graceful same-root restart is in scope"));
+    assert!(
+        start_here.contains("cold full-root backup/restore plus matching service configuration")
+    );
+    assert!(contract.contains("A committed object is recoverable only when both `object.json` and `ciphertext.bin` are present"));
+    assert!(contract.contains("Hot/live backup while mutations continue is unsupported"));
+    assert!(contract.contains("Partial restore of only sessions"));
 }

@@ -60,6 +60,17 @@ pub struct OperatorPolicySurface {
     pub max_ciphertext_bytes: u64,
 }
 
+#[derive(Clone, Debug, Default, Serialize, PartialEq, Eq)]
+pub struct RecoverySummary {
+    pub resumable_sessions: usize,
+    pub discarded_incoherent_sessions: usize,
+    pub discarded_orphan_session_dirs: usize,
+    pub discarded_orphan_part_files: usize,
+    pub recovered_committed_objects: usize,
+    pub discarded_incoherent_objects: usize,
+    pub discarded_orphan_object_dirs: usize,
+}
+
 impl Default for Config {
     fn default() -> Self {
         Self {
@@ -327,6 +338,7 @@ struct InnerState {
     clock: Arc<dyn Clock>,
     disk_space: Arc<dyn DiskSpace>,
     storage: Storage,
+    recovery: RecoverySummary,
     audit: AuditLog,
     mutation_lock: AsyncMutex<()>,
     abuse_tracker: AsyncMutex<AbuseTracker>,
@@ -344,12 +356,14 @@ impl AppState {
     ) -> io::Result<Self> {
         let storage = Storage::new(config.storage_root.clone());
         storage.ensure_layout()?;
+        let recovery = storage.reconcile_startup()?;
         Ok(Self {
             inner: Arc::new(InnerState {
                 config,
                 clock,
                 disk_space,
                 storage,
+                recovery,
                 audit: AuditLog::default(),
                 mutation_lock: AsyncMutex::new(()),
                 abuse_tracker: AsyncMutex::new(AbuseTracker::default()),
@@ -363,6 +377,10 @@ impl AppState {
 
     pub fn config(&self) -> &Config {
         &self.inner.config
+    }
+
+    pub fn recovery_summary(&self) -> RecoverySummary {
+        self.inner.recovery.clone()
     }
 
     pub fn operator_policy_surface(&self) -> OperatorPolicySurface {
@@ -1351,6 +1369,13 @@ impl Storage {
         Ok(())
     }
 
+    fn reconcile_startup(&self) -> io::Result<RecoverySummary> {
+        let mut summary = RecoverySummary::default();
+        self.reconcile_sessions(&mut summary)?;
+        self.reconcile_objects(&mut summary)?;
+        Ok(summary)
+    }
+
     fn sessions_dir(&self) -> PathBuf {
         self.root.join("sessions")
     }
@@ -1502,6 +1527,243 @@ impl Storage {
         }
         Ok(false)
     }
+
+    fn remove_file_if_exists(&self, path: &Path) -> io::Result<()> {
+        if path.exists() {
+            fs::remove_file(path)?;
+        }
+        Ok(())
+    }
+
+    fn remove_dir_if_exists(&self, path: &Path) -> io::Result<()> {
+        if path.exists() {
+            fs::remove_dir_all(path)?;
+        }
+        Ok(())
+    }
+
+    fn reconcile_sessions(&self, summary: &mut RecoverySummary) -> io::Result<()> {
+        let sessions_dir = self.sessions_dir();
+        if !sessions_dir.exists() {
+            return Ok(());
+        }
+        for entry in fs::read_dir(sessions_dir)? {
+            let entry = entry?;
+            if !entry.file_type()?.is_dir() {
+                continue;
+            }
+            let session_id = entry.file_name().to_string_lossy().to_string();
+            let session_dir = self.session_dir(&session_id);
+            if !is_base64url_token(&session_id, 1, 128) {
+                self.remove_dir_if_exists(&session_dir)?;
+                summary.discarded_orphan_session_dirs += 1;
+                continue;
+            }
+
+            let meta_path = self.session_meta_path(&session_id);
+            if !meta_path.exists() {
+                self.remove_dir_if_exists(&session_dir)?;
+                summary.discarded_orphan_session_dirs += 1;
+                continue;
+            }
+
+            let mut session: SessionMeta = match read_json_file(&meta_path) {
+                Ok(session) => session,
+                Err(_) => {
+                    self.remove_dir_if_exists(&session_dir)?;
+                    summary.discarded_incoherent_sessions += 1;
+                    continue;
+                }
+            };
+            if session.session_id != session_id || !session_meta_shape_is_coherent(&session) {
+                self.remove_dir_if_exists(&session_dir)?;
+                summary.discarded_incoherent_sessions += 1;
+                continue;
+            }
+
+            let artifacts = self.collect_session_part_artifacts(&session.session_id)?;
+            let coherent = session
+                .stored_parts
+                .iter()
+                .all(|(part_index, recorded_len)| {
+                    let expected_len = expected_part_length(&session, *part_index);
+                    matches!(
+                        artifacts.named_parts.get(part_index),
+                        Some(part) if part.len == expected_len && *recorded_len == expected_len
+                    )
+                });
+            if !coherent {
+                self.remove_dir_if_exists(&session_dir)?;
+                summary.discarded_incoherent_sessions += 1;
+                continue;
+            }
+
+            if matches!(
+                session.state,
+                SessionState::AbortedSession | SessionState::ExpiredSession
+            ) {
+                let discarded = artifacts.named_parts.len() + artifacts.orphan_paths.len();
+                if discarded > 0 {
+                    self.clear_session_parts(&session.session_id)?;
+                    summary.discarded_orphan_part_files += discarded;
+                }
+                let mut mutated = false;
+                if !session.stored_parts.is_empty() {
+                    session.stored_parts.clear();
+                    mutated = true;
+                }
+                if session.resume_token_hash.is_some() {
+                    session.resume_token_hash = None;
+                    mutated = true;
+                }
+                if mutated {
+                    self.save_session(&session)?;
+                }
+                continue;
+            }
+
+            let mut discarded_orphans = artifacts.orphan_paths.len();
+            for (part_index, part) in artifacts.named_parts {
+                if session.stored_parts.contains_key(&part_index) {
+                    continue;
+                }
+                self.remove_file_if_exists(&part.path)?;
+                discarded_orphans += 1;
+            }
+            for orphan_path in artifacts.orphan_paths {
+                self.remove_path(&orphan_path)?;
+            }
+            summary.discarded_orphan_part_files += discarded_orphans;
+
+            let expected_state = open_session_state(session.stored_parts.len(), session.part_count);
+            if session.state != expected_state {
+                session.state = expected_state;
+                self.save_session(&session)?;
+            }
+            summary.resumable_sessions += 1;
+        }
+        Ok(())
+    }
+
+    fn reconcile_objects(&self, summary: &mut RecoverySummary) -> io::Result<()> {
+        let objects_dir = self.objects_dir();
+        if !objects_dir.exists() {
+            return Ok(());
+        }
+        for entry in fs::read_dir(objects_dir)? {
+            let entry = entry?;
+            if !entry.file_type()?.is_dir() {
+                continue;
+            }
+            let locator_ref = entry.file_name().to_string_lossy().to_string();
+            let object_dir = self.object_dir(&locator_ref);
+            if !is_base64url_token(&locator_ref, 1, 128) {
+                self.remove_dir_if_exists(&object_dir)?;
+                summary.discarded_orphan_object_dirs += 1;
+                continue;
+            }
+
+            let meta_path = self.object_meta_path(&locator_ref);
+            if !meta_path.exists() {
+                self.remove_dir_if_exists(&object_dir)?;
+                summary.discarded_orphan_object_dirs += 1;
+                continue;
+            }
+
+            let object: ObjectMeta = match read_json_file(&meta_path) {
+                Ok(object) => object,
+                Err(_) => {
+                    self.remove_dir_if_exists(&object_dir)?;
+                    summary.discarded_incoherent_objects += 1;
+                    continue;
+                }
+            };
+            if object.locator_ref != locator_ref || !object_meta_shape_is_coherent(&object) {
+                self.remove_dir_if_exists(&object_dir)?;
+                summary.discarded_incoherent_objects += 1;
+                continue;
+            }
+
+            let bytes_path = self.object_bytes_path(&locator_ref);
+            match object.object_state {
+                ObjectState::CommittedObject => {
+                    let is_coherent = match fs::metadata(&bytes_path) {
+                        Ok(metadata) => {
+                            metadata.is_file() && metadata.len() == object.ciphertext_len
+                        }
+                        Err(_) => false,
+                    };
+                    if !is_coherent {
+                        self.remove_dir_if_exists(&object_dir)?;
+                        summary.discarded_incoherent_objects += 1;
+                        continue;
+                    }
+                    summary.recovered_committed_objects += 1;
+                }
+                ObjectState::ExpiredObject => {
+                    self.remove_file_if_exists(&bytes_path)?;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn collect_session_part_artifacts(&self, session_id: &str) -> io::Result<SessionPartArtifacts> {
+        let mut artifacts = SessionPartArtifacts::default();
+        let parts_dir = self.session_parts_dir(session_id);
+        if !parts_dir.exists() {
+            return Ok(artifacts);
+        }
+        for entry in fs::read_dir(parts_dir)? {
+            let entry = entry?;
+            let path = entry.path();
+            if !entry.file_type()?.is_file() {
+                artifacts.orphan_paths.push(path);
+                continue;
+            }
+            let Some(name) = path.file_name().and_then(|value| value.to_str()) else {
+                artifacts.orphan_paths.push(path);
+                continue;
+            };
+            let Some(index_raw) = name.strip_suffix(".part") else {
+                artifacts.orphan_paths.push(path);
+                continue;
+            };
+            let Ok(index) = index_raw.parse::<u32>() else {
+                artifacts.orphan_paths.push(path);
+                continue;
+            };
+            let len = entry.metadata()?.len();
+            artifacts
+                .named_parts
+                .insert(index, PartArtifact { path, len });
+        }
+        Ok(artifacts)
+    }
+
+    fn remove_path(&self, path: &Path) -> io::Result<()> {
+        if !path.exists() {
+            return Ok(());
+        }
+        let metadata = fs::metadata(path)?;
+        if metadata.is_dir() {
+            fs::remove_dir_all(path)?;
+        } else {
+            fs::remove_file(path)?;
+        }
+        Ok(())
+    }
+}
+
+#[derive(Default)]
+struct SessionPartArtifacts {
+    named_parts: BTreeMap<u32, PartArtifact>,
+    orphan_paths: Vec<PathBuf>,
+}
+
+struct PartArtifact {
+    path: PathBuf,
+    len: u64,
 }
 
 fn write_json_atomic<T: Serialize>(path: &Path, value: &T) -> io::Result<()> {
@@ -1522,6 +1784,11 @@ fn write_bytes_atomic(path: &Path, value: &[u8]) -> io::Result<()> {
     let tmp = path.with_extension("tmp");
     fs::write(&tmp, value)?;
     fs::rename(tmp, path)
+}
+
+fn read_json_file<T: for<'de> Deserialize<'de>>(path: &Path) -> io::Result<T> {
+    let bytes = fs::read(path)?;
+    serde_json::from_slice(&bytes).map_err(|error| io::Error::other(error.to_string()))
 }
 
 fn read_json_opt<T: for<'de> Deserialize<'de>>(path: &Path) -> io::Result<Option<T>> {
@@ -1708,12 +1975,49 @@ fn validate_non_secret_ref(value: &str) -> Result<(), String> {
     }
 }
 
+fn session_meta_shape_is_coherent(session: &SessionMeta) -> bool {
+    is_base64url_token(&session.session_id, 1, 128)
+        && is_lower_hex(&session.attachment_id, 64)
+        && session.ciphertext_len > 0
+        && session.part_count > 0
+        && session.integrity_alg == INTEGRITY_ALG_V1
+        && is_lower_hex(&session.integrity_root, 128)
+        && session.part_count as u64
+            == div_ceil(session.ciphertext_len, session.part_size_class.bytes())
+        && session
+            .stored_parts
+            .keys()
+            .all(|part_index| *part_index < session.part_count)
+}
+
+fn object_meta_shape_is_coherent(object: &ObjectMeta) -> bool {
+    is_lower_hex(&object.attachment_id, 64)
+        && object.locator_kind == LOCATOR_KIND_V1
+        && is_base64url_token(&object.locator_ref, 1, 128)
+        && object.ciphertext_len > 0
+        && object.part_count > 0
+        && object.integrity_alg == INTEGRITY_ALG_V1
+        && is_lower_hex(&object.integrity_root, 128)
+        && object.part_count as u64
+            == div_ceil(object.ciphertext_len, object.part_size_class.bytes())
+}
+
 fn expected_part_length(session: &SessionMeta, part_index: u32) -> u64 {
     let part_size = session.part_size_class.bytes();
     if part_index + 1 < session.part_count {
         part_size
     } else {
         session.ciphertext_len - (part_size * u64::from(session.part_count - 1))
+    }
+}
+
+fn open_session_state(stored_part_count: usize, part_count: u32) -> SessionState {
+    if stored_part_count == 0 {
+        SessionState::Created
+    } else if stored_part_count as u32 == part_count {
+        SessionState::Committable
+    } else {
+        SessionState::Uploading
     }
 }
 

@@ -63,7 +63,8 @@ This contract is grounded by the current merged state of:
 - Staged ciphertext part writes use `write_bytes_atomic(...)`: write a temporary file, then rename it into the part path.
 - Object metadata writes use `write_json_atomic(...)`: write a temporary file, then rename it into `object.json`.
 - Commit writes `ciphertext.bin` directly, flushes that file handle, saves `object.json`, then removes the old session directory.
-- Startup ensures the storage layout exists, but it does not perform journal/object reconciliation beyond normal request-path expiry sweeps.
+- Startup ensures the storage layout exists and now performs bounded reconciliation of the same storage root before serving requests.
+- That reconciliation keeps only coherent open sessions whose `session.json` still matches the named staged part files, discards extra orphan staged artifacts, and re-exposes committed objects only when `object.json` and `ciphertext.bin` both survive with matching length.
 
 ### 3.4 What the current code does not prove
 
@@ -75,7 +76,7 @@ This contract is grounded by the current merged state of:
 - A crash during commit can leave:
   - `ciphertext.bin` without `object.json`, or
   - a committed object on disk while the old session directory still exists.
-- The runtime does not currently reconcile or repair those ambiguous states automatically at startup.
+- The startup reconciliation remains bounded and fail-closed: it discards incoherent sessions/objects rather than reconstructing missing journals, missing parts, or partial committed objects.
 - No merged evidence proves that open sessions survive backup/restore, and no merged evidence proves that live/hot backups are safe.
 
 ## 4. Frozen contract
