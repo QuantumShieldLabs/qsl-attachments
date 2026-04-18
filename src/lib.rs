@@ -229,7 +229,12 @@ impl DiskSpace for SystemDiskSpace {
             return Err(io::Error::last_os_error());
         }
         let stats = unsafe { stats.assume_init() };
-        Ok(stats.f_bavail.saturating_mul(stats.f_frsize))
+        #[cfg(target_vendor = "apple")]
+        let available_blocks = u64::from(stats.f_bavail);
+        #[cfg(not(target_vendor = "apple"))]
+        let available_blocks = stats.f_bavail;
+        let fragment_size = stats.f_frsize;
+        Ok(available_blocks.saturating_mul(fragment_size))
     }
 }
 
