@@ -9,6 +9,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use axum::body::{Body, Bytes};
+use axum::extract::rejection::JsonRejection;
 use axum::extract::{Path as AxumPath, State};
 use axum::http::header::{ACCEPT_RANGES, CONTENT_LENGTH, CONTENT_RANGE, CONTENT_TYPE, RANGE};
 use axum::http::{HeaderMap, Response, StatusCode, Uri};
@@ -958,8 +959,9 @@ pub fn build_router(state: AppState) -> Router {
 async fn create_session_handler(
     State(state): State<AppState>,
     uri: Uri,
-    Json(request): Json<CreateSessionRequest>,
+    request: Result<Json<CreateSessionRequest>, JsonRejection>,
 ) -> Result<impl IntoResponse, ServiceError> {
+    let Json(request) = request.map_err(ServiceError::malformed_json)?;
     let response = state.create_session(&uri, request).await?;
     Ok((StatusCode::CREATED, Json(response)))
 }
@@ -992,8 +994,9 @@ async fn commit_session_handler(
     AxumPath(session_id): AxumPath<String>,
     uri: Uri,
     headers: HeaderMap,
-    Json(request): Json<CommitRequest>,
+    request: Result<Json<CommitRequest>, JsonRejection>,
 ) -> Result<impl IntoResponse, ServiceError> {
+    let Json(request) = request.map_err(ServiceError::malformed_json)?;
     let response = state
         .commit_session(&uri, &session_id, &headers, request)
         .await?;
@@ -1216,6 +1219,14 @@ impl ServiceError {
             StatusCode::BAD_REQUEST,
             "REJECT_QATTSVC_SESSION_SHAPE",
             message,
+        )
+    }
+
+    fn malformed_json(rejection: JsonRejection) -> Self {
+        Self::new(
+            rejection.status(),
+            "REJECT_QATTSVC_MALFORMED_JSON",
+            "malformed JSON request body",
         )
     }
 
