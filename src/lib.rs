@@ -29,6 +29,12 @@ const FETCH_CAPABILITY_HEADER: &str = "X-QATT-Fetch-Capability";
 const LOCATOR_KIND_V1: &str = "service_ref_v1";
 const INTEGRITY_ALG_V1: &str = "sha512_merkle_v1";
 const DEFAULT_MAX_CIPHERTEXT_BYTES: u64 = 101 * 1024 * 1024;
+const ONE_MIB: u64 = 1024 * 1024;
+const SMALL_SIZE_CLASS_BYTES: [u64; 12] = [
+    256, 512, 768, 1024, 1536, 2048, 3072, 4096, 5120, 6144, 7168, 8192,
+];
+
+pub const PRODUCTION_SIZE_CLASS_POLICY_V1: &str = "qsl_attachments_production_size_class_v1";
 
 #[derive(Clone, Debug)]
 pub struct Config {
@@ -43,6 +49,63 @@ pub struct Config {
     pub extended_retention_ttl_secs: u64,
     pub invalid_secret_attempt_limit: u32,
     pub invalid_range_attempt_limit: u32,
+    pub size_class_policy: SizeClassPolicy,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub enum SizeClassPolicy {
+    #[default]
+    Disabled,
+    ProductionV1 {
+        max_class_bytes: u64,
+    },
+}
+
+impl SizeClassPolicy {
+    pub fn production_v1(max_class_bytes: u64) -> Result<Self, String> {
+        validate_production_size_class_max(max_class_bytes)?;
+        Ok(Self::ProductionV1 { max_class_bytes })
+    }
+
+    pub fn production_v1_default() -> Self {
+        Self::ProductionV1 {
+            max_class_bytes: DEFAULT_MAX_CIPHERTEXT_BYTES,
+        }
+    }
+
+    pub fn validate(&self) -> Result<(), String> {
+        match self {
+            Self::Disabled => Ok(()),
+            Self::ProductionV1 { max_class_bytes } => {
+                validate_production_size_class_max(*max_class_bytes)
+            }
+        }
+    }
+
+    pub fn size_class_info_for_len(
+        &self,
+        ciphertext_len: u64,
+    ) -> Result<Option<SizeClassInfo>, String> {
+        match self {
+            Self::Disabled => Ok(None),
+            Self::ProductionV1 { max_class_bytes } => {
+                let class_bytes = qsl_attachments_production_size_class_for_len(
+                    ciphertext_len,
+                    *max_class_bytes,
+                )?;
+                Ok(Some(SizeClassInfo {
+                    policy: PRODUCTION_SIZE_CLASS_POLICY_V1.to_owned(),
+                    class_bytes,
+                }))
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SizeClassInfo {
+    pub policy: String,
+    pub class_bytes: u64,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -85,6 +148,7 @@ impl Default for Config {
             extended_retention_ttl_secs: 604_800,
             invalid_secret_attempt_limit: 8,
             invalid_range_attempt_limit: 4,
+            size_class_policy: SizeClassPolicy::Disabled,
         }
     }
 }
@@ -124,7 +188,13 @@ impl Config {
             "QATT_INVALID_RANGE_ATTEMPTS",
             &mut cfg.invalid_range_attempt_limit,
         )?;
+        parse_size_class_policy_env(&mut cfg)?;
+        cfg.validate()?;
         Ok(cfg)
+    }
+
+    pub fn validate(&self) -> Result<(), String> {
+        self.size_class_policy.validate()
     }
 
     pub fn operator_policy_surface(&self) -> OperatorPolicySurface {
@@ -150,6 +220,113 @@ impl Config {
             RetentionClass::Extended => self.extended_retention_ttl_secs,
         }
     }
+}
+
+fn parse_size_class_policy_env(config: &mut Config) -> Result<(), String> {
+    let policy = std::env::var("QATT_SIZE_CLASS_POLICY").ok();
+    let max_class = std::env::var("QATT_SIZE_CLASS_MAX_BYTES").ok();
+    match policy.as_deref() {
+        None | Some("") | Some("disabled") | Some("off") | Some("none") => {
+            if max_class.is_some() {
+                return Err(
+                    "invalid QATT_SIZE_CLASS_MAX_BYTES: requires QATT_SIZE_CLASS_POLICY".to_owned(),
+                );
+            }
+            config.size_class_policy = SizeClassPolicy::Disabled;
+            Ok(())
+        }
+        Some(PRODUCTION_SIZE_CLASS_POLICY_V1) => {
+            let max_class_bytes = match max_class {
+                Some(value) => value
+                    .parse()
+                    .map_err(|e| format!("invalid QATT_SIZE_CLASS_MAX_BYTES: {e}"))?,
+                None => DEFAULT_MAX_CIPHERTEXT_BYTES,
+            };
+            config.size_class_policy = SizeClassPolicy::production_v1(max_class_bytes)?;
+            Ok(())
+        }
+        Some(other) => Err(format!(
+            "invalid QATT_SIZE_CLASS_POLICY: expected disabled or {PRODUCTION_SIZE_CLASS_POLICY_V1}, got {other}"
+        )),
+    }
+}
+
+pub fn qsl_attachments_production_size_class_table(
+    max_class_bytes: u64,
+) -> Result<Vec<u64>, String> {
+    validate_production_size_class_max(max_class_bytes)?;
+    let mut classes = Vec::new();
+    for value in SMALL_SIZE_CLASS_BYTES {
+        if value <= max_class_bytes {
+            classes.push(value);
+        }
+    }
+
+    let mut value = 16 * 1024;
+    while value <= max_class_bytes && value <= ONE_MIB {
+        classes.push(value);
+        value += 8 * 1024;
+    }
+
+    value = 2 * ONE_MIB;
+    while value <= max_class_bytes {
+        classes.push(value);
+        value += ONE_MIB;
+    }
+
+    Ok(classes)
+}
+
+pub fn qsl_attachments_production_size_class_for_len(
+    ciphertext_len: u64,
+    max_class_bytes: u64,
+) -> Result<u64, String> {
+    if ciphertext_len == 0 {
+        return Err("ciphertext_len must be > 0".to_owned());
+    }
+    validate_production_size_class_max(max_class_bytes)?;
+    let class = if ciphertext_len <= 8192 {
+        *SMALL_SIZE_CLASS_BYTES
+            .iter()
+            .find(|candidate| **candidate >= ciphertext_len)
+            .expect("small class table covers <= 8192")
+    } else if ciphertext_len <= ONE_MIB {
+        ciphertext_len.div_ceil(8 * 1024) * 8 * 1024
+    } else {
+        ciphertext_len.div_ceil(ONE_MIB) * ONE_MIB
+    };
+    if class > max_class_bytes {
+        return Err("ciphertext_len exceeds configured production size-class maximum".to_owned());
+    }
+    Ok(class)
+}
+
+fn validate_production_size_class_max(max_class_bytes: u64) -> Result<(), String> {
+    if max_class_bytes < SMALL_SIZE_CLASS_BYTES[0] {
+        return Err("production size-class max must be at least 256 bytes".to_owned());
+    }
+    if max_class_bytes > DEFAULT_MAX_CIPHERTEXT_BYTES {
+        return Err(
+            "production size-class max must not exceed the 101 MiB qsl-attachments ceiling"
+                .to_owned(),
+        );
+    }
+    if max_class_bytes <= 8192 {
+        if SMALL_SIZE_CLASS_BYTES.contains(&max_class_bytes) {
+            return Ok(());
+        }
+        return Err("production size-class max must align with the small-class table".to_owned());
+    }
+    if max_class_bytes <= ONE_MIB {
+        if max_class_bytes.is_multiple_of(8 * 1024) {
+            return Ok(());
+        }
+        return Err("production size-class max through 1 MiB must align to 8 KiB".to_owned());
+    }
+    if max_class_bytes.is_multiple_of(ONE_MIB) {
+        return Ok(());
+    }
+    Err("production size-class max above 1 MiB must align to 1 MiB".to_owned())
 }
 
 fn parse_env_u64(name: &str, target: &mut u64) -> Result<(), String> {
@@ -359,6 +536,9 @@ impl AppState {
         clock: Arc<dyn Clock>,
         disk_space: Arc<dyn DiskSpace>,
     ) -> io::Result<Self> {
+        config
+            .validate()
+            .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
         let storage = Storage::new(config.storage_root.clone());
         storage.ensure_layout()?;
         let recovery = storage.reconcile_startup()?;
@@ -479,6 +659,12 @@ impl AppState {
     ) -> Result<CreateSessionResponse, ServiceError> {
         reject_noncanonical_query(uri)?;
         validate_create_session_request(&request, &self.inner.config)?;
+        let size_class = self
+            .inner
+            .config
+            .size_class_policy
+            .size_class_info_for_len(request.ciphertext_len)
+            .map_err(ServiceError::quota)?;
         let now = self.inner.clock.now_unix_s();
         let _guard = self.inner.mutation_lock.lock().await;
         self.sweep_expired(now).await?;
@@ -522,6 +708,7 @@ impl AppState {
             integrity_alg: request.integrity_alg,
             integrity_root: request.integrity_root,
             retention_class: request.retention_class,
+            size_class: size_class.clone(),
             session_expires_at_unix_s: now + self.inner.config.session_ttl_secs,
             state: SessionState::Created,
             resume_token_hash: Some(hash_secret(&resume_token)),
@@ -544,6 +731,7 @@ impl AppState {
             part_size_class: session.part_size_class,
             part_count: session.part_count,
             retention_class: session.retention_class,
+            size_class,
             session_expires_at_unix_s: session.session_expires_at_unix_s,
         })
     }
@@ -689,6 +877,7 @@ impl AppState {
             stored_part_count: session.stored_parts.len() as u32,
             missing_part_ranges,
             retention_class: session.retention_class,
+            size_class: session.size_class,
             session_expires_at_unix_s: session.session_expires_at_unix_s,
         })
     }
@@ -778,6 +967,7 @@ impl AppState {
             integrity_alg: session.integrity_alg.clone(),
             integrity_root: session.integrity_root.clone(),
             retention_class: session.retention_class,
+            size_class: session.size_class.clone(),
             expires_at_unix_s,
             object_state: ObjectState::CommittedObject,
         };
@@ -802,6 +992,7 @@ impl AppState {
             integrity_alg: object.integrity_alg,
             integrity_root: object.integrity_root,
             retention_class: object.retention_class,
+            size_class: object.size_class,
             expires_at_unix_s,
             object_state: ObjectState::CommittedObject,
         })
@@ -1100,6 +1291,7 @@ pub struct CreateSessionResponse {
     pub part_size_class: PartSizeClass,
     pub part_count: u32,
     pub retention_class: RetentionClass,
+    pub size_class: Option<SizeClassInfo>,
     pub session_expires_at_unix_s: u64,
 }
 
@@ -1123,6 +1315,7 @@ pub struct SessionStatusResponse {
     pub stored_part_count: u32,
     pub missing_part_ranges: Vec<MissingRange>,
     pub retention_class: RetentionClass,
+    pub size_class: Option<SizeClassInfo>,
     pub session_expires_at_unix_s: u64,
 }
 
@@ -1148,6 +1341,7 @@ pub struct CommitResponse {
     pub integrity_alg: String,
     pub integrity_root: String,
     pub retention_class: RetentionClass,
+    pub size_class: Option<SizeClassInfo>,
     pub expires_at_unix_s: u64,
     pub object_state: ObjectState,
 }
@@ -1168,6 +1362,7 @@ struct SessionMeta {
     integrity_alg: String,
     integrity_root: String,
     retention_class: RetentionClass,
+    size_class: Option<SizeClassInfo>,
     session_expires_at_unix_s: u64,
     state: SessionState,
     resume_token_hash: Option<String>,
@@ -1186,6 +1381,7 @@ struct ObjectMeta {
     integrity_alg: String,
     integrity_root: String,
     retention_class: RetentionClass,
+    size_class: Option<SizeClassInfo>,
     expires_at_unix_s: u64,
     object_state: ObjectState,
 }
@@ -1999,6 +2195,7 @@ fn session_meta_shape_is_coherent(session: &SessionMeta) -> bool {
         && is_lower_hex(&session.integrity_root, 128)
         && session.part_count as u64
             == div_ceil(session.ciphertext_len, session.part_size_class.bytes())
+        && size_class_info_is_coherent(&session.size_class, session.ciphertext_len)
         && session
             .stored_parts
             .keys()
@@ -2015,6 +2212,19 @@ fn object_meta_shape_is_coherent(object: &ObjectMeta) -> bool {
         && is_lower_hex(&object.integrity_root, 128)
         && object.part_count as u64
             == div_ceil(object.ciphertext_len, object.part_size_class.bytes())
+        && size_class_info_is_coherent(&object.size_class, object.ciphertext_len)
+}
+
+fn size_class_info_is_coherent(size_class: &Option<SizeClassInfo>, ciphertext_len: u64) -> bool {
+    let Some(size_class) = size_class else {
+        return true;
+    };
+    if size_class.policy != PRODUCTION_SIZE_CLASS_POLICY_V1 {
+        return false;
+    }
+    qsl_attachments_production_size_class_for_len(ciphertext_len, DEFAULT_MAX_CIPHERTEXT_BYTES)
+        .map(|expected| expected == size_class.class_bytes)
+        .unwrap_or(false)
 }
 
 fn expected_part_length(session: &SessionMeta, part_index: u32) -> u64 {
