@@ -179,3 +179,15 @@
     - widen this item into stronger storage semantics or runtime redesign (rejected: the frozen contract is already unambiguous and this lane is validation/cleanup only)
     - leave the unsupported-case wording implicit on top-level operator docs (rejected: it leaves stale assumptions in the very surfaces the validation lane is meant to clean up)
   - **References:** `README.md`; `START_HERE.md`; `TRACEABILITY.md`; `docs/NA-0009_durability_recovery_contract.md`; `tests/NA-0010A_durability_recovery_validation_evidence.md`; `tests/service_contract.rs`; qsl-protocol `DECISIONS.md`
+
+- **ID:** D-0011
+  - **Status:** Accepted
+  - **Date:** 2026-07-18
+  - **Goals:** G4
+  - **Decision:** qsl-attachments gains the three community-health files `SECURITY.md`, `CODE_OF_CONDUCT.md`, and `CONTRIBUTING.md`, adapted from the qsl-protocol spine's files as the source of truth (qsl-protocol NA-0655 / QSL-DIR-2026-07-18-591 (D591) / D-1278). `SECURITY.md` carries the spine's reporting section verbatim plus a repo-scope section naming this repository (the research-stage attachment service/runtime for the QSL opaque encrypted attachment plane) and routing protocol-level reports to qsl-protocol; it describes REPORTING only and adds no assurance claims. `CODE_OF_CONDUCT.md` is byte-identical to the spine's (Contributor Covenant 2.1). `CONTRIBUTING.md` states this repository's real gate (the single required `rust` check on every PR; merge commits only) and the spine-governed lane reality.
+  - **Invariants:**
+    - The three files describe reporting and process only; no assurance or capability claim is added anywhere.
+    - Attachment-service runtime semantics, code, tests, dependencies, and workflows are untouched.
+    - README, LICENSE, NOTICE, and repository settings are untouched.
+    - qsl-attachments remains opaque ciphertext-only; qsl-server remains separate and transport-only.
+  - **References:** qsl-protocol NA-0655 / QSL-DIR-2026-07-18-591 (D591) / D-1278; `SECURITY.md`; `CODE_OF_CONDUCT.md`; `CONTRIBUTING.md`
