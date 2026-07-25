@@ -191,3 +191,49 @@
     - README, LICENSE, NOTICE, and repository settings are untouched.
     - qsl-attachments remains opaque ciphertext-only; qsl-server remains separate and transport-only.
   - **References:** qsl-protocol NA-0655 / QSL-DIR-2026-07-18-591 (D591) / D-1278; `SECURITY.md`; `CODE_OF_CONDUCT.md`; `CONTRIBUTING.md`
+
+- **ID:** D-0012
+  - **Status:** Accepted
+  - **Date:** 2026-07-25
+  - **Goals:** G4
+  - **Decision:** Add the operator-infrastructure literal gate and a `cargo audit`
+    advisories job to this repository's CI, per spine **D613** (NA-0677). **⚠ The
+    intent this came from said "port the spine's public-safety job". There was
+    nothing to port:** that job scans for private keys and cloud tokens and has
+    never contained an address, path or host pattern — which is exactly why it
+    ran green on every pull request that published a private LAN address. The
+    failure was the pattern set, not the scan's scope.
+    `scripts/ci/infra_literal_scan.py` is that missing pattern set.
+  - **The scanner is byte-identical to the copies in `qsl-desktop`, `qsl-server`
+    and `qsl-protocol`** (`cmp`-proven at landing). The pattern set is
+    deliberately **not forked**: one source of truth for one question.
+  - **Tiers.** Tier 1 (network-identifying literals and personal identity) over
+    the whole tracked tree, failing on any hit. Tier 2b (low-frequency private
+    names) over added lines only. Tier 2a (build-root and home paths) not scanned
+    at all. This repository is **Tier-1 clean** at landing: 39 files, 13,391
+    lines examined, zero hits.
+  - **The private names are salted SHA-256 digests, not text**, because this
+    repository is public and a pattern file naming them would republish what the
+    sanitize lane removed — and the Tier-1 scan would then hit its own pattern
+    file. The plaintext list is operator-held. Matching is **token-wise**, so a
+    name embedded in an identifier is caught while one merely spanning a
+    camelCase seam is not.
+  - **Advisories: `cargo audit --deny warnings`, with no waiver file** — this
+    repository's dependency graph is clean today (verified at landing). If that
+    changes, the fix is a **named-ID** waiver, never dropping `--deny warnings`.
+  - **Clippy is unchanged.** This repository already ran `cargo clippy
+    --all-targets -- -D warnings`; it is the only one of the four that did, and
+    it needed nothing.
+  - **⚠ Both new jobs are ADVISORY, not blocking.** This repository requires
+    exactly one status context, `rust`, which is unchanged. They cannot block a
+    merge until the operator adds them to the required set. ⚠ Note also that this
+    repository has `enforce_admins: false` where the other three have `true` — an
+    inconsistency observed during the lane's census, **reported and not acted on**
+    (it is outside D613's scope and is the operator's decision).
+  - **Proved by positive control in THIS repository**, not inherited from the
+    file: a Tier-1 host name embedded as `SOME_<name>_THING` in a tracked file
+    makes the scan FAIL, and removing it makes it pass. Evidence:
+    `/srv/qbuild/evidence/NA-0677/gate_positive_control.txt`.
+  - **References:** spine D613 (APPROVED 2026-07-25, amended twice; sha256
+    `586ae25a…19d57fe0a9b95a51`, 446 lines) and spine NA-0677; qsl-desktop D-0014;
+    spine NA-0676/D-1307.
