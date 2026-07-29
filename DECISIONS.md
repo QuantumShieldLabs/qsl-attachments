@@ -237,3 +237,31 @@
   - **References:** spine D613 (APPROVED 2026-07-25, amended twice; sha256
     `586ae25a…19d57fe0a9b95a51`, 446 lines) and spine NA-0677; qsl-desktop D-0014;
     spine NA-0676/D-1307.
+
+- **ID:** D-0013
+  - **Status:** Accepted
+  - **Date:** 2026-07-29
+  - **Goals:** G4
+  - **Lane:** NA-0684 — the infra-hostname sanitization micro-lane. Spine directive **D619**
+    (sha256 `a8dab7f1…7ea65092`, 539 lines); spine decisions **D-1322** / **D-1323**.
+  - **Decision:** `docs/NA-0004_reference_deployment_runbook.md` stops naming the operator's
+    retired public hostnames. Five occurrences become angle-bracket placeholders —
+    `<attachments-public-host>` (the reference profile line, the TLS-termination line, the
+    Caddyfile block, the public probe) and `<relay-public-host>` (the mandatory relay
+    preflight). Command structure is unchanged; **one substitution per line**.
+  - **Why here and not in the evidence files.** The runbook is an instruction a reader
+    follows **today**; the `NA-0003` / `NA-0004` / `NA-0005` evidence files **report what was
+    true** on a dated run. The property the spine ruled: *a line is in scope when, read
+    today, it directs traffic; out of scope when it reports what was true.* Eight
+    occurrences in this repository's `tests/` are therefore **left byte-identical**, and the
+    lane's gate prints them in every run so the exception cannot hide.
+  - **⚠ The ssh aliases STAY, and that is a measured finding rather than a preference.**
+    `qatt` is a **project term** — it names the canonical attachment-service contract
+    (`DOC-CAN-006`) and appears in this crate's own source — and `qsl` is the project.
+    **Only the DNS names are operator infrastructure.**
+  - **Authority:** the operator's disposition of 2026-07-28 — the retired names' registrations
+    are **held indefinitely**, so the mitigation for what git history already carries is the
+    hold itself, **not scrubbing**. No history is rewritten.
+  - **References:** spine D619 / D-1322 / D-1323 / D-1320's follow-up map; D-0012 (the
+    infra-literal gate in this repo, which **cannot see this class** — the retired names are
+    in no digest list).
