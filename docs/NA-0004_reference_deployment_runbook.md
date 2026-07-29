@@ -17,7 +17,7 @@ Non-goals:
 
 Host:
 - SSH alias: `qatt`
-- Public name: `qatt.ddnsfree.com`
+- Public name: `<attachments-public-host>`
 - Provisioned profile: materially stronger than constrained-host `qsl`
 - Observed baseline during `NA-0201`:
   - `4` vCPU
@@ -27,7 +27,7 @@ Host:
 Network / ingress:
 - inbound `22/tcp`, `80/tcp`, and `443/tcp`
 - `qsl-attachments` binds only to loopback `127.0.0.1:3000`
-- Caddy terminates public TLS on `qatt.ddnsfree.com` and reverse-proxies to `127.0.0.1:3000`
+- Caddy terminates public TLS on `<attachments-public-host>` and reverse-proxies to `127.0.0.1:3000`
 
 Runtime posture preserved:
 - single-node local-disk runtime only
@@ -126,7 +126,7 @@ WantedBy=multi-user.target
 Install `/etc/caddy/Caddyfile`:
 
 ```caddy
-qatt.ddnsfree.com {
+<attachments-public-host> {
     reverse_proxy 127.0.0.1:3000
 }
 ```
@@ -143,7 +143,7 @@ Probe loopback and public TLS with a secret-safe schema error:
 
 ```bash
 ssh qatt 'curl -sS -o /tmp/qatt_probe_body -w "%{http_code}\n" -H "content-type: application/json" --data "{}" http://127.0.0.1:3000/v1/attachments/sessions && cat /tmp/qatt_probe_body'
-curl -sS -o /tmp/qatt_probe_tls_body -w "%{http_code}\n" -H 'content-type: application/json' --data '{}' https://qatt.ddnsfree.com/v1/attachments/sessions && cat /tmp/qatt_probe_tls_body
+curl -sS -o /tmp/qatt_probe_tls_body -w "%{http_code}\n" -H 'content-type: application/json' --data '{}' https://<attachments-public-host>/v1/attachments/sessions && cat /tmp/qatt_probe_tls_body
 ```
 
 Expected result:
@@ -156,7 +156,7 @@ Expected result:
 Before any reference traffic run, rerun the already-restored relay compatibility guard on `qsl`:
 
 ```bash
-ssh qsl 'sudo -n BASE_URL=http://127.0.0.1:8080 PUBLIC_BASE_URL=https://qsl.ddnsfree.com /tmp/directive147-qsl-server-scripts/verify_remote.sh'
+ssh qsl 'sudo -n BASE_URL=http://127.0.0.1:8080 PUBLIC_BASE_URL=https://<relay-public-host> /tmp/directive147-qsl-server-scripts/verify_remote.sh'
 ```
 
 Required result:
