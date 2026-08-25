@@ -1,5 +1,12 @@
-qsl-attachments
-Copyright (C) 2026 QuantumShieldLabs
+QuantumShield Attachments (qsl-attachments)
+Copyright (c) 2026 QuantumShield Labs
 
-This repository is licensed under the GNU Affero General Public License v3.0 only.
-See LICENSE.
+Licensed under AGPL-3.0-only; see LICENSE.
+
+Canonical repositories (reference):
+- qsl-attachments: https://github.com/QuantumShieldLabs/qsl-attachments
+- qsl-protocol: https://github.com/QuantumShieldLabs/qsl-protocol
+- qsl-server: https://github.com/QuantumShieldLabs/qsl-server
+
+Official proof runs are linked from the qsl-protocol spine's TRACEABILITY.md.
+Do not trust unaudited binaries.

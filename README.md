@@ -31,7 +31,7 @@ Runtime shape in this item:
 
 Operational posture:
 - this repo is still only the current single-node local-disk runtime
-- `main` currently requires only the `rust` check
+- `main` currently requires three checks: `rust`, `advisories`, and `infra-literal-scan`
 - startup now emits an operator-safe runtime configuration summary, and storage-headroom rejects fail closed before weak hosts exhaust disk during validation
 - no deployment automation or multi-node storage backend is present yet
 - the authn/authz / policy-subject contract now lives in `docs/NA-0007_authn_authz_policy_subject_contract.md`
