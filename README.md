@@ -1,4 +1,4 @@
-[README.md](https://github.com/user-attachments/files/32137466/README_qsl-attachments.md)
+[README.md](https://github.com/user-attachments/files/32138291/README_qsl-attachments.md)
 
 # QSL Attachments
 
@@ -84,11 +84,12 @@ resource references are not principals, `Authorization` remains reserved and und
 deployment policy and quota allow them; what each capability constrains is *which* session or
 object it can touch, not who is asking.
 
-**Durability boundary, stated precisely:** one local storage root on one node. Graceful
-same-root restart is in scope. Cold full-root backup and restore, with matching service
-configuration, is the only supported backup shape — hot and partial restore are **not**
-supported. Abrupt-crash and open-session recovery is fail-closed plus bounded operator
-cleanup, **not** cross-file transactional durability.
+**Durability boundary, stated precisely:** one local storage root on one node, and
+graceful same-root restart is in scope. The only supported backup shape is
+cold full-root backup/restore plus matching service configuration;
+hot/live backup and partial restore remain unsupported. Abrupt-crash and open-session
+recovery remains fail-closed plus bounded operator cleanup rather than cross-file
+transactional durability.
 
 ---
 
