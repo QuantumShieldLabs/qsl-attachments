@@ -1,54 +1,125 @@
-# qsl-attachments
+[README.md](https://github.com/user-attachments/files/32137466/README_qsl-attachments.md)
 
-Public runtime home for the QSL opaque encrypted attachment plane.
+# QSL Attachments
 
-This repository implements the attachment service/runtime defined by qsl-protocol:
-- control-plane descriptor contract: `DOC-CAN-005`
-- attachment service contract: `DOC-CAN-006`
-- attachment encryption-context and part-cipher contract: `DOC-CAN-007`
+**The attachment plane for QSL: a service that stores encrypted file parts it cannot read.**
 
-Public posture:
-- AGPL-3.0-only
-- opaque encrypted attachment handling only
-- no plaintext attachment handling on service surfaces
-- no capability-like secrets in canonical URLs
-- qsl-server remains a separate transport-only relay surface
-- qsl-protocol remains the canonical source of truth for attachment control-plane and service-plane docs
+Files sent through QSL are encrypted on the sending device before they reach this service.
+What arrives here is ciphertext in numbered parts. The runtime stores them, tracks upload
+sessions, and hands them back — with **no plaintext attachment handling on any service
+surface**.
 
-Current state:
-- single-node local-disk runtime implementation
-- deterministic contract-faithfulness tests and minimal runtime CI
-- qsc/client integration exists upstream in qsl-protocol
-- constrained-host operational hardening and real-world validation now have direct evidence in `tests/NA-0003_constrained_host_validation_evidence.md`
-- stronger reference-deployment validation and promotion-gate evidence now exist in `tests/NA-0004_reference_deployment_validation_evidence.md`
-- bounded stress/soak/chaos evidence now exists in `tests/NA-0005_stress_soak_chaos_evidence.md`
+> [!WARNING]
+> **Research-stage. Not independently audited. Not production-ready.**
+> This is a single-node, local-disk runtime. There is no deployment automation and no
+> multi-node storage backend.
 
-Runtime shape in this item:
-- opaque ciphertext part files on local disk
-- local metadata/session journals persisted as JSON
-- create/upload/status/commit/abort/retrieval lifecycle from `DOC-CAN-006`
-- single-range ciphertext retrieval support
+---
 
-Operational posture:
-- this repo is still only the current single-node local-disk runtime
-- `main` currently requires three checks: `rust`, `advisories`, and `infra-literal-scan`
-- startup now emits an operator-safe runtime configuration summary, and storage-headroom rejects fail closed before weak hosts exhaust disk during validation
-- no deployment automation or multi-node storage backend is present yet
-- the authn/authz / policy-subject contract now lives in `docs/NA-0007_authn_authz_policy_subject_contract.md`
-- the durability / recovery contract now lives in `docs/NA-0009_durability_recovery_contract.md`
-- the runtime now exposes an explicit operator policy surface and startup summary stating that the sole current service policy subject is the operator-scoped deployment, quotas are deployment-global, resource refs are not principals, and `Authorization` remains reserved/undefined
-- current service auth remains operator-scoped deployment policy plus per-session/object capability authorization; many transfers remain allowed when deployment policy/quota allows them, but each `resume_token`/`fetch_capability` still authorizes exactly one session/object and no separate end-user service principal exists today
-- capabilities are reusable only inside that resource scope while the resource remains valid: a `resume_token` can resume/status/upload/commit/abort its one open session until commit, abort, or expiry invalidates it, and a `fetch_capability` can repeatedly fetch only its one committed object until object expiry invalidates it
-- the current durability boundary is one local storage root on one node; graceful same-root restart is in scope; cold full-root backup/restore plus matching service configuration is the only supported backup shape; hot/live backup and partial restore remain unsupported; and abrupt-crash/open-session recovery remains fail-closed plus bounded operator cleanup rather than cross-file transactional durability
-- startup now reconciles that storage root explicitly: only coherent open sessions and committed objects are re-exposed, orphaned staged/object artifacts are discarded, and the service emits an operator-safe recovery summary instead of inventing stronger crash semantics
-- the implementation-grade operational contract now lives in `docs/NA-0002_operational_hardening_contract.md`
-- constrained-host execution evidence now lives in `tests/NA-0003_constrained_host_validation_evidence.md`
-- the stronger reference-host install/update path now lives in `docs/NA-0004_reference_deployment_runbook.md`
-- stronger reference-deployment validation evidence now lives in `tests/NA-0004_reference_deployment_validation_evidence.md`
-- bounded stress/soak/chaos evidence now lives in `tests/NA-0005_stress_soak_chaos_evidence.md`
+## Why a separate service
 
-Canonical references:
-- https://github.com/QuantumShieldLabs/qsl-protocol/blob/main/docs/canonical/DOC-CAN-005_QSP_Attachment_Descriptor_and_Control_Plane_v0.1.0_DRAFT.md
-- https://github.com/QuantumShieldLabs/qsl-protocol/blob/main/docs/canonical/DOC-CAN-006_QATT_Attachment_Service_Contract_v0.1.0_DRAFT.md
-- https://github.com/QuantumShieldLabs/qsl-protocol/blob/main/docs/canonical/DOC-CAN-007_QATT_Attachment_Encryption_Context_and_Part_Cipher_v0.1.0_DRAFT.md
-- https://github.com/QuantumShieldLabs/qsl-protocol/blob/main/docs/design/DOC-ATT-002_qsl-attachments_Deployment_and_Operational_Hardening_Contract_v0.1.0_DRAFT.md
+Attachments have a different shape from messages. They are large, they arrive in parts over
+time, an upload can be resumed or abandoned, and a recipient may fetch one long after it was
+sent. Folding that into the message relay would put lifecycle state and storage pressure into
+a component whose whole value is being a dumb pipe.
+
+So attachments get their own plane, with its own contracts, and the
+[relay](https://github.com/QuantumShieldLabs/qsl-server) stays transport-only.
+
+## What it implements
+
+This repository is the runtime for three canonical contracts defined in
+[qsl-protocol](https://github.com/QuantumShieldLabs/qsl-protocol):
+
+| Contract | Scope |
+|---|---|
+| [`DOC-CAN-005`](https://github.com/QuantumShieldLabs/qsl-protocol/blob/main/docs/canonical) | Attachment descriptor and control plane |
+| [`DOC-CAN-006`](https://github.com/QuantumShieldLabs/qsl-protocol/blob/main/docs/canonical) | Attachment service contract |
+| [`DOC-CAN-007`](https://github.com/QuantumShieldLabs/qsl-protocol/blob/main/docs/canonical) | Encryption context and part cipher |
+
+**qsl-protocol remains the canonical source of truth.** Where this repository and those
+documents disagree, the documents win.
+
+---
+
+## Design posture
+
+- **Opaque ciphertext only.** Part files on disk are ciphertext. The service has no key
+  material and no way to obtain any.
+- **No capability-like secrets in canonical URLs.** A secret in a URI ends up in logs,
+  proxies, and browser history. Credentials travel in bodies and headers.
+- **Capabilities are scoped to one resource.** A `resume_token` authorizes exactly one open
+  session — resume, status, upload, commit, abort — until commit, abort, or expiry
+  invalidates it. A `fetch_capability` authorizes repeated fetches of exactly one committed
+  object until that object expires. Neither is a general credential, and neither crosses to
+  another resource.
+- **Fail-closed recovery.** On startup the storage root is reconciled explicitly: only
+  coherent open sessions and committed objects are re-exposed, orphaned staged artifacts are
+  discarded, and the service emits an operator-safe recovery summary rather than inventing
+  stronger crash semantics than it can deliver.
+- **Storage-headroom rejection.** The runtime refuses work before a weak host exhausts its
+  disk, instead of failing halfway through a write.
+
+## Lifecycle
+
+`create` → `upload` (parts) → `status` → `commit`, with `abort` available throughout, and
+retrieval afterwards including single-range ciphertext fetch. The full state machine is
+normative in `DOC-CAN-006`.
+
+---
+
+## Current state
+
+- Single-node, **local-disk** runtime.
+- Opaque ciphertext part files on disk; local metadata and session journals persisted as JSON.
+- Deterministic contract-faithfulness tests and a minimal runtime CI.
+- Client integration exists upstream in qsl-protocol.
+- Evidence exists in-repo for constrained-host validation, reference-deployment validation, and
+  bounded stress, soak, and chaos runs. See [`tests/`](tests) and [`docs/`](docs).
+
+**Authorization, stated precisely:** current service authorization is operator-scoped
+deployment policy plus per-session and per-object capabilities. Quotas are deployment-global,
+resource references are not principals, `Authorization` remains reserved and undefined, and
+**there is no separate end-user service principal today**. Many transfers are permitted when
+deployment policy and quota allow them; what each capability constrains is *which* session or
+object it can touch, not who is asking.
+
+**Durability boundary, stated precisely:** one local storage root on one node. Graceful
+same-root restart is in scope. Cold full-root backup and restore, with matching service
+configuration, is the only supported backup shape — hot and partial restore are **not**
+supported. Abrupt-crash and open-session recovery is fail-closed plus bounded operator
+cleanup, **not** cross-file transactional durability.
+
+---
+
+## Status and honest limits
+
+- **Not independently audited.**
+- **Not production-ready.** No deployment automation, no multi-node backend, no
+  high-availability story.
+- Single point of failure by construction at this stage.
+- The canonical contracts it implements are marked **DRAFT**.
+- Open defects exist and are tracked in the open.
+
+---
+
+## Security reporting
+
+Please do **not** file security-sensitive reports in public issues. Use GitHub private
+vulnerability reporting on this repository, or follow [`SECURITY.md`](SECURITY.md). If private
+reporting is unavailable, open a minimal public issue with **no exploit details**, stating
+that you can share specifics privately.
+
+## Related repositories
+
+- [**qsl-protocol**](https://github.com/QuantumShieldLabs/qsl-protocol) — canonical contracts
+  and specifications, including DOC-CAN-005/006/007
+- [**qsl-desktop**](https://github.com/QuantumShieldLabs/qsl-desktop) — the desktop client
+- [**qsl-server**](https://github.com/QuantumShieldLabs/qsl-server) — the transport-only relay,
+  a separate surface
+
+## License
+
+`AGPL-3.0-only` — see [`LICENSE`](LICENSE). Any future commercial services or support
+offerings are separate from this repository and do not replace the AGPL terms on the source
+published here.
