@@ -29,6 +29,8 @@ Create session -> Upload encrypted parts -> Inspect status -> Commit -> Fetch
 | Backup | Cold full-root backup/restore with matching configuration |
 | Unsupported assurance | Hot/partial restore, cross-file transactional crash durability and multi-node availability |
 
+Within the single-node contract, graceful same-root restart is in scope. The supported backup shape is a cold full-root backup/restore plus matching service configuration. The limits are explicit: hot/live backup and partial restore remain unsupported. Abrupt power-loss and cross-file transactional durability are not established.
+
 Capabilities authorize specific resources. They are not general account credentials and do not establish a person's identity. Ciphertext storage still exposes operational metadata such as access patterns and object sizes.
 
 ## Inspect the implementation

@@ -13,6 +13,8 @@ Begin with the [overview](README.md), then select the evidence relevant to your 
 
 The protocol contracts are DOC-CAN-005, DOC-CAN-006 and DOC-CAN-007 in the [canonical directory](https://github.com/QuantumShieldLabs/qsl-protocol/tree/main/docs/canonical).
 
-Each evidence record retains its own source, workload and limits. The reference runbook is not production approval. Cold full-root backup with matching configuration is the supported backup shape described by this component; do not infer support for hot or partial restore.
+Each evidence record retains its own source, workload and limits. The reference runbook is not production approval.
+
+Within the single-node contract, graceful same-root restart is in scope. The supported backup shape is a cold full-root backup/restore plus matching service configuration. The limits are explicit: hot/live backup and partial restore remain unsupported. Abrupt power-loss and cross-file transactional durability are not established.
 
 This service is distinct from proposed successor inline-file delivery. See [SECURITY.md](SECURITY.md) before reporting sensitive findings.
