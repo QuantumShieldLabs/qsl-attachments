@@ -7,6 +7,12 @@ This repository implements the existing QSL encrypted-object service: upload ses
 > [!WARNING]
 > Not independently audited or production-ready. The runtime uses one node and one local storage root; it does not establish high availability or public deployment safety.
 
+## How this fits the QSL/KP direction
+
+The project intends to explore QSL end-to-end encrypted exchange over **Katzenpost (KP)**. This repository remains the separate encrypted-object service described below. Proposed file flows in the interface mockup do not establish working desktop attachments, a KP file-transfer implementation or replacement of this service.
+
+Read the [November 2026 project update](https://github.com/QuantumShieldLabs/qsl-protocol/blob/main/docs/public/PROJECT_STATUS_2026-11.md) for current progress and the boundary between development candidates, public source and plans.
+
 ## Scope
 
 The canonical contracts live in [qsl-protocol](https://github.com/QuantumShieldLabs/qsl-protocol/tree/main/docs/canonical): DOC-CAN-005, DOC-CAN-006 and DOC-CAN-007.
